@@ -1,0 +1,28 @@
+# A strict starting point for a team: enforce, ask before anything leaves the org, no new MCP servers without approval.
+# Copy to ~/.interlock/policy.yaml (or <repo>/.interlock/policy.yaml), then `interlock policy lint` and `interlock restart`.
+version: 1
+mode: enforce
+
+trust:
+  allowed_git_remotes: ["github.com/my-org/*"]        # pushes anywhere else ask
+  protected_branches: ["main", "release/*"]
+
+packs:
+  enabled: [shell, git, egress, persistence, secrets, packages]
+  overrides:
+    packages.install_undeclared: { action: ask }       # new dependencies need a human
+    egress.unknown_host: { action: ask }               # unknown hosts ask instead of being recorded
+
+mcp:
+  default: ask                                          # every MCP server is opt-in
+  tools:
+    github: allow
+    "github/delete_*": block
+    "*/drop_*": block
+
+flow:
+  action: block                                         # private data + untrusted content + a way out: refuse
+
+judge:
+  probe:
+    local: { enabled: true }

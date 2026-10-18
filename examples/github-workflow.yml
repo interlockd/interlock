@@ -1,0 +1,16 @@
+# .github/workflows/interlock.yml: scan agent / MCP configs and instruction files, test the policy, upload SARIF.
+name: interlock
+on: [pull_request]
+permissions:
+  contents: read
+  security-events: write
+jobs:
+  interlock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: interlockd/interlock@v0.1.0
+        with: { fail-on: high }
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with: { sarif_file: interlock.sarif }

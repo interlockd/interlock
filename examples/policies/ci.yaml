@@ -1,0 +1,11 @@
+# For `interlock test --policy` in CI (see examples/github-workflow.yml): the rules your repository relies on,
+# with the gates the test run must meet.
+version: 1
+mode: enforce
+
+trust:
+  allowed_git_remotes: ["github.com/my-org/*"]
+
+tests:
+  max_fpr: 0.0          # no benign case may be stopped
+  max_fnr: 0.0          # no attack case may get through

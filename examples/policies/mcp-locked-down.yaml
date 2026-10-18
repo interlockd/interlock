@@ -1,0 +1,15 @@
+# Only the MCP servers you name, and read-only tools on them. Pair with `interlock gateway wrap`.
+version: 1
+mode: enforce
+
+mcp:
+  default: block
+  tools:
+    github: allow
+    "github/create_*": ask
+    "github/update_*": ask
+    "github/delete_*": block
+    "github/merge_*": block
+    filesystem: allow
+    "filesystem/write_*": ask
+    "filesystem/move_*": ask
