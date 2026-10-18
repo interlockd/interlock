@@ -29,6 +29,13 @@ jobs:
         run: .venv/bin/interlock test
       - name: Evaluation corpus gate
         run: .venv/bin/interlock test --corpus corpus/archetypes
+      - name: Linux sandbox (bubblewrap)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y -qq bubblewrap
+          # Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor; bubblewrap needs them
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          .venv/bin/pytest -q tests/test_sandbox.py -rs
       - name: Framework integrations (Strands, LangChain) against a real daemon
         run: |
           uv pip install --python .venv/bin/python strands-agents langchain-core openai-agents

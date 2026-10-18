@@ -80,3 +80,29 @@ def test_profile_and_bwrap_shapes(home):
 def test_agent_configs_opt_in(home):
     assert ".claude/settings.json" not in macos_profile(home)                       # agents rewrite these at startup
     assert ".claude/settings.json" in macos_profile(home, protect_agent_configs=True)
+
+
+def _bwrap_works() -> bool:
+    if platform.system() != "Linux" or not shutil.which("bwrap"):
+        return False
+    return subprocess.run(["bwrap", "--dev-bind", "/", "/", "true"], capture_output=True, timeout=10, check=False).returncode == 0
+
+
+linux = pytest.mark.skipif(not _bwrap_works(), reason="Linux bubblewrap with user namespaces only")
+
+
+@linux
+def test_linux_protected_writes_refused(home):
+    (home / ".zshrc").write_text("")                                    # bwrap protects existing paths
+    (home / ".ssh" / "authorized_keys").write_text("")
+    for target in (home / ".zshrc", home / ".ssh" / "authorized_keys", home / ".interlock" / "token"):
+        r = _sh(home, f"echo x >> '{target}'")
+        assert r.returncode != 0, target
+    r = _sh(home, f"echo ok > '{home}/proj/file.txt' && echo log >> '{home}/.interlock/hook.log' && cat '{home}/.interlock/token'")
+    assert r.returncode == 0 and r.stdout.strip() == "tok" and (home / "proj" / "file.txt").read_text() == "ok\n"
+
+
+@linux
+def test_linux_deny_secret_reads(home):
+    r = _sh(home, f"cat '{home}/.ssh/id_ed25519'", deny_secret_reads=True)
+    assert "PRIVATE" not in r.stdout
