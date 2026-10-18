@@ -59,8 +59,11 @@ fi
 
 FORMAT=claude-code; case "$HARNESS" in cursor|gemini-cli|copilot-cli|antigravity) FORMAT=$HARNESS ;; windsurf) FORMAT=text ;; esac
 secs=$(( timeout_ms / 1000 )).$(( (timeout_ms % 1000) / 100 ))
+# prefer the daemon's Unix socket (mode 0600: only this user can connect) unless a URL was given explicitly
+sock=""; [ -z "$INTERLOCK_URL" ] && [ -S "$HOME_DIR/interlockd.sock" ] && sock="$HOME_DIR/interlockd.sock"
+if [ -n "$sock" ]; then base="http://localhost"; set -- --unix-socket "$sock"; else set --; fi
 reply=$(printf '{"adapter":{"name":"%s","version":"%s","event":"%s"},"payload":%s}' "$HARNESS" "$VERSION" "$EVENT" "$payload" | \
-  curl -sf -m "$secs" -H "authorization: Bearer $token" -H "content-type: application/json" \
+  curl -sf -m "$secs" "$@" -H "authorization: Bearer $token" -H "content-type: application/json" \
     --data-binary @- "$base/interlock/v1/hooks/$HARNESS?format=$FORMAT" 2>/dev/null)
 rc=$?
 

@@ -43,12 +43,17 @@ class Settings:
     dynamodb_table: str | None = None
     aws_region: str | None = None
     aws_profile: str | None = None
+    unix_socket: bool = True                     # also serve on <home>/interlockd.sock (0600); hooks prefer it
     otlp_endpoint: str | None = None               # e.g. http://localhost:4318/v1/traces (OpenTelemetry export)
     otlp_headers: dict[str, str] = field(default_factory=dict)
 
     @property
     def token_path(self) -> Path:
         return self.home / "token"
+
+    @property
+    def socket_path(self) -> Path:
+        return self.home / "interlockd.sock"
 
     @property
     def spool_dir(self) -> Path:

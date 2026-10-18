@@ -17,6 +17,7 @@ First public release.
 - `interlock explain`: why a call was stopped, in plain language, with the override snippet.
 - OpenTelemetry: one span per decision to any OTLP/HTTP collector (`otlp_endpoint` in config), and `interlock otel export` to backfill.
 - `interlock aibom`: CycloneDX 1.6 AI bill of materials for the agent stack (agents, models, MCP servers with package URLs and pinning, remote endpoints).
+- Hardening: the daemon also listens on a 0600 Unix socket that the hooks prefer; `interlock token --rotate`.
 - Tamper-evident audit log: hash-chained records, `interlock audit verify` and `audit head`.
 - `interlock scan`: static audit of MCP servers and agent settings across Claude Code, Claude Desktop, Codex, Cursor, VS Code, Kiro, Gemini CLI, and Windsurf.
 - `interlock report`, `doctor`, `status`, `log`, `enforce` / `shadow`, `test`.

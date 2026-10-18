@@ -61,19 +61,43 @@ class _Server(ThreadingHTTPServer):
         self.server_name, self.server_port = str(host), port
 
 
+class _UnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+    """The same API on a Unix socket created with mode 0600: only the owning user can connect at all."""
+    daemon_threads = True
+
+    def server_bind(self):
+        import os
+
+        path = self.server_address
+        if os.path.exists(path):
+            os.unlink(path)                       # a stale socket from a previous run
+        old = os.umask(0o177)
+        try:
+            super().server_bind()
+        finally:
+            os.umask(old)
+        os.chmod(path, 0o600)
+
+
 class ApiServer:
-    def __init__(self, daemon: Daemon, token: str, host: str, port: int):
+    def __init__(self, daemon: Daemon, token: str, host: str, port: int, *, unix_socket: str | None = None):
         self.daemon, self.token = daemon, token
         handler = self._make_handler()
         self.httpd = _Server((host, port), handler)
         self.httpd.daemon_threads = True
+        self.unix = _UnixServer(unix_socket, handler) if unix_socket else None
         self._thread: threading.Thread | None = None
+        self._unix_thread: threading.Thread | None = None
 
     @property
     def address(self) -> tuple[str, int]:
         return self.httpd.server_address[0], self.httpd.server_address[1]
 
     def serve_forever(self) -> None:
+        if self.unix is not None and self._unix_thread is None:
+            self._unix_thread = threading.Thread(target=self.unix.serve_forever, kwargs={"poll_interval": 0.5},
+                                                 name="interlock-api-unix", daemon=True)
+            self._unix_thread.start()
         self.httpd.serve_forever(poll_interval=0.5)
 
     def start_background(self) -> None:
@@ -83,6 +107,16 @@ class ApiServer:
     def shutdown(self) -> None:
         self.httpd.shutdown()
         self.httpd.server_close()
+        if self.unix is not None:
+            import os
+
+            if self._unix_thread is not None:      # socketserver.shutdown() blocks forever if its loop never started
+                self.unix.shutdown()
+            self.unix.server_close()
+            try:
+                os.unlink(self.unix.server_address)
+            except OSError:
+                pass
 
     def _make_handler(self):
         server = self

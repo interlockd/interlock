@@ -88,8 +88,14 @@ def cmd_serve(args) -> int:
                                               entities=pc.entities, injection_threshold=pc.injection_threshold)
         print(f"probe: bedrock guardrails in {s.aws_region or 'default region'} ({', '.join(pc.prompt_attack)}; {len(pc.entities)} entity types)")
     host, port = s.host_port()
-    server = ApiServer(daemon, token, host, port)
-    (s.home / "daemon.json").write_text(json.dumps({"listen": s.listen, "pid": os.getpid(), "version": __version__}))
+    sock = str(s.socket_path) if s.unix_socket and len(str(s.socket_path)) < 100 else None
+    try:
+        server = ApiServer(daemon, token, host, port, unix_socket=sock)
+    except OSError as e:                         # a socket we can't create never stops the daemon: TCP still serves
+        print(f"unix socket unavailable ({e}); serving on TCP only")
+        sock, server = None, ApiServer(daemon, token, host, port)
+    (s.home / "daemon.json").write_text(json.dumps({"listen": s.listen, "pid": os.getpid(), "version": __version__,
+                                                    **({"socket": sock} if sock else {})}))
     print(f"interlockd {__version__} listening on http://{host}:{port}  mode={daemon.mode} profile={s.profile}")
     print(f"token: {s.token_path}   spool: {s.spool_dir}" + (f"   dynamodb: {s.dynamodb_table}" if repo else "   repository: spool only"))
 

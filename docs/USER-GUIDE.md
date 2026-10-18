@@ -99,7 +99,7 @@ Log: `~/.interlock/mcp-proxy.log`. Pins: `~/.interlock/mcp-pins.json`; after rev
 }
 ```
 
-`otlp_endpoint` (e.g. `http://localhost:4318/v1/traces`) and `otlp_headers` send one OpenTelemetry span per decision to your collector (OTLP/HTTP JSON, batched in the background; a session is one trace; attributes follow the GenAI conventions plus `interlock.*`; arguments and results are never exported). `interlock otel export --endpoint URL` backfills from the audit log. All keys are optional, and `init` writes none of them. Without `dynamodb_table` the daemon runs spool-only (fully functional; records stay in `~/.interlock/spool/`). Other keys: `listen`, `mode`, `agent_id`, `kiro_sessions_dir`, `user_messages_n`, `pre_timeout_ms`, `post_timeout_ms`.
+`otlp_endpoint` (e.g. `http://localhost:4318/v1/traces`) and `otlp_headers` send one OpenTelemetry span per decision to your collector (OTLP/HTTP JSON, batched in the background; a session is one trace; attributes follow the GenAI conventions plus `interlock.*`; arguments and results are never exported). `interlock otel export --endpoint URL` backfills from the audit log. The daemon also serves the API on `~/.interlock/interlockd.sock`, created with mode 0600 so only your user can connect; the shell hooks prefer it over loopback TCP (`"unix_socket": false` turns it off; TCP stays for the HTTP MCP gateway and the Python clients). All keys are optional, and `init` writes none of them. Without `dynamodb_table` the daemon runs spool-only (fully functional; records stay in `~/.interlock/spool/`). Other keys: `listen`, `mode`, `agent_id`, `kiro_sessions_dir`, `user_messages_n`, `pre_timeout_ms`, `post_timeout_ms`.
 
 ### CLI
 
