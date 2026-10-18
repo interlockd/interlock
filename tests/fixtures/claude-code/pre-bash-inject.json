@@ -1,0 +1,17 @@
+{
+  "session_id": "b3fd4aae-e440-4437-9161-f7702c2419e3",
+  "transcript_path": "/Users/dev/.claude/projects/-private-tmp-ccv-proj/b3fd4aae-e440-4437-9161-f7702c2419e3.jsonl",
+  "cwd": "/private/tmp/ccv/proj",
+  "prompt_id": "0685ba66-09ef-4089-9944-199bc1ad3800",
+  "permission_mode": "auto",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "cat -A /private/tmp/ccv/proj/README.md 2>/dev/null || cat -v /private/tmp/ccv/proj/README.md",
+    "description": "Show README contents including hidden characters"
+  },
+  "tool_use_id": "toolu_bdrk_01MZvY3GhxQDc5RZyDSBGEZa"
+}

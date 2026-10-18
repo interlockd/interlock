@@ -1,0 +1,54 @@
+name: release
+
+# Publish to PyPI when a version tag is pushed (git tag v0.1.0 && git push origin v0.1.0).
+# Uses PyPI trusted publishing: no API token is stored. One-time setup on pypi.org:
+#   project "interlock" → Publishing → add GitHub publisher: owner interlockd, repo interlock,
+#   workflow release.yml, environment pypi.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Tag matches package version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg=$(python3 -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          mod=$(python3 -c "import re;print(re.search(r'__version__ = \"(.+)\"', open('interlockd/__init__.py').read()).group(1))")
+          echo "tag=$tag pyproject=$pkg module=$mod"
+          [ "$tag" = "$pkg" ] && [ "$tag" = "$mod" ]
+      - name: Test
+        run: |
+          uv venv --python 3.12 && uv pip install -e ".[dev]" --python .venv/bin/python
+          .venv/bin/ruff check . && .venv/bin/pytest -q && .venv/bin/interlock test
+      - name: Build
+        run: uv build
+      - name: Smoke-test the wheel
+        run: |
+          uv venv /tmp/w --python 3.12 && uv pip install --python /tmp/w/bin/python dist/*.whl
+          cd /tmp && /tmp/w/bin/interlock --help >/dev/null && /tmp/w/bin/interlock test
+      - uses: actions/upload-artifact@v4
+        with: { name: dist, path: dist/ }
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write          # trusted publishing
+      contents: write          # GitHub release
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: dist, path: dist/ }
+      - uses: pypa/gh-action-pypi-publish@release/v1
+      - name: GitHub release
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes

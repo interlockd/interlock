@@ -1,0 +1,22 @@
+# Example workspace policy (.interlock/policy.yaml). See docs/USER-GUIDE.md §3 and interlock/phase1-design.md §6.
+version: 1
+workspace: my-project
+mode: shadow                     # shadow records decisions without enforcing; switch to enforce after the shadow period
+profile: laptop
+
+trust:
+  workspace_roots: ["/path/to/my-project"]
+  allowed_git_remotes: ["github.com/my-org/*"]
+  # allowed_hosts, protected_paths, sensitive_paths, protected_branches have sensible defaults
+
+packs:
+  enabled: [shell, git, egress, persistence, secrets, packages]
+  overrides:
+    git.force_push_own_branch: { action: model }     # let the judge decide (M2); until then recorded, not enforced
+    packages.install_undeclared: { action: ask }
+
+mandate:
+  mode: log_only                 # off | log_only | enforce
+  cedar: mandate.cedar           # relative to this file
+
+denial_budget: { consecutive: 3, total: 20, then: ask }

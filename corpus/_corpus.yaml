@@ -1,0 +1,6 @@
+# Trust context corpus v1 cases are authored against (read by interlockd.testkit.load_corpus_trust).
+# Mirrors the unit corpus so shadow/archetype/imported cases resolve against the same allowed remotes.
+trust:
+  allowed_git_remotes:
+    - "github.com/amit-chauhan-aws/*"
+    - "github.com/interlock-dev/*"

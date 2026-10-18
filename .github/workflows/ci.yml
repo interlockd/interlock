@@ -1,0 +1,37 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install
+        run: |
+          uv venv --python 3.12
+          uv pip install -e ".[dev]" --python .venv/bin/python
+      - name: Lint
+        run: .venv/bin/ruff check .
+      - name: Unit tests
+        run: .venv/bin/pytest -q
+      - name: Rule corpus gate
+        run: .venv/bin/interlock test
+      - name: Evaluation corpus gate
+        run: .venv/bin/interlock test --corpus corpus/archetypes
+      - name: Wheel smoke test
+        run: |
+          uv build --wheel -o dist
+          uv venv /tmp/wheel --python 3.12
+          uv pip install --python /tmp/wheel/bin/python dist/*.whl
+          cd /tmp && /tmp/wheel/bin/interlock test

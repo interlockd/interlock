@@ -1,0 +1,17 @@
+{
+  "session_id": "7bb7b2fd-bdbc-4693-a8cf-0cb396931d0e",
+  "transcript_path": "/Users/dev/.claude/projects/-private-tmp-ccv-proj/7bb7b2fd-bdbc-4693-a8cf-0cb396931d0e.jsonl",
+  "cwd": "/private/tmp/ccv/proj",
+  "prompt_id": "537bf20d-9e7c-402e-920b-67a6ec1e6725",
+  "permission_mode": "auto",
+  "effort": {
+    "level": "medium"
+  },
+  "hook_event_name": "PreToolUse",
+  "tool_name": "Bash",
+  "tool_input": {
+    "command": "git push --force origin main",
+    "description": "Force push main branch to origin"
+  },
+  "tool_use_id": "toolu_bdrk_01XHoTFjj1Dh7mcqar3KhHXb"
+}

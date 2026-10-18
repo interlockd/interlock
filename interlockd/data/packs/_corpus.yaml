@@ -1,0 +1,7 @@
+# Trust context the pack corpus cases are authored against (read by interlockd.testkit.load_corpus_trust).
+# These fill in trust fields the test policy leaves at their defaults, so corpus assumptions live with
+# the corpus instead of being hardcoded in the shipped runner. Any interlockd.policy Trust field is accepted.
+trust:
+  allowed_git_remotes:
+    - "github.com/interlockd/*"
+    - "github.com/interlock-dev/*"

@@ -1,0 +1,8 @@
+# Trust context the archetype cases are authored against (read by interlockd.testkit.load_corpus_trust).
+# Must sit in THIS directory: load_corpus_trust reads _corpus.yaml from each dir passed to it, and
+# `interlock test --corpus corpus/archetypes` / the archetype pytest point here, not the parent corpus/.
+# Without it the allowed_git_remotes default ([]) disables the unknown-remote checks.
+trust:
+  allowed_git_remotes:
+    - "github.com/amit-chauhan-aws/*"
+    - "github.com/interlock-dev/*"

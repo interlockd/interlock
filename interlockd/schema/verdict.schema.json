@@ -1,0 +1,68 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://interlock.dev/schema/verdict.schema.json",
+  "title": "OGR Verdict",
+  "description": "The Verdict returned by POST /v1/evaluate. Follows the OGR verdict contract (phase1-research.md \u00a74): decision is allow|block (require_approval was removed in OGR v1.x), findings carry OGR categories and offsets, continuation names what a PEP should do.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["event_id", "provider", "decision", "findings", "continuation"],
+  "properties": {
+    "event_id": { "type": "string" },
+    "provider": { "type": "string" },
+    "decision": { "type": "string", "enum": ["allow", "block"] },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["category", "detector"],
+        "properties": {
+          "category": { "type": "string" },
+          "severity": { "type": "string", "enum": ["low", "medium", "high", "critical"] },
+          "path": { "type": ["string", "null"] },
+          "start": { "type": ["integer", "null"] },
+          "end": { "type": ["integer", "null"] },
+          "score": { "type": "number", "minimum": 0, "maximum": 1 },
+          "fp": { "type": "boolean" },
+          "whitelisted": { "type": "boolean" },
+          "subject": { "type": ["string", "null"] },
+          "detector": { "type": "string" },
+          "rule": { "type": ["string", "null"] }
+        }
+      }
+    },
+    "modifications": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "spans": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["start", "end"],
+            "properties": {
+              "path": { "type": ["string", "null"] },
+              "start": { "type": "integer" },
+              "end": { "type": "integer" }
+            }
+          }
+        }
+      }
+    },
+    "unjudged": { "type": "array", "items": { "type": "string" } },
+    "latency_ms": { "type": "number", "minimum": 0 },
+    "continuation": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["style"],
+      "properties": {
+        "style": { "type": "string", "enum": ["drop_calls", "withhold", "answer"] },
+        "notice": { "type": ["string", "null"] },
+        "calls": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "timing": { "type": "object" },
+    "payload": { "type": ["object", "null"] }
+  }
+}

