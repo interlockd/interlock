@@ -1,6 +1,6 @@
 # Getting started
 
-This guide takes about ten minutes. You install Interlock, watch what it would block, switch to enforcing, and then optionally add MCP servers, your own agents, and CI. Every step can be undone with `interlock uninstall`.
+This guide takes about ten minutes. You install Interlock, watch what it would block, switch to enforcing, and then optionally add a team policy, MCP servers, your own agents, and CI. Every step can be undone with `interlock uninstall`.
 
 ## 1. Install
 
@@ -70,7 +70,11 @@ Refused calls now don't run. The agent receives the reason and is told not to re
 
 `interlock doctor` checks that protection is really on. It reports missing or edited hooks, agents you have installed that aren't protected, calls that ran while the daemon was down, and whether the audit log is intact.
 
-## 5. Optional: MCP servers
+## 5. Optional: share a policy with your team
+
+Commit a policy as `.interlock/policy.yaml` in a repository, starting from [examples/policies/strict-team.yaml](../examples/policies/strict-team.yaml). Everyone running Interlock gets it for calls made inside that repository, with no restart needed. A repository's policy can only make your own stricter, so a poisoned repository can't switch rules off. `interlock policy lint --workspace .` shows what applies.
+
+## 6. Optional: MCP servers
 
 ```sh
 interlock scan              # audit MCP and agent configs: unpinned packages, inline secrets, broad roots, auto-approved tools
@@ -79,7 +83,7 @@ interlock gateway wrap      # route every MCP server through Interlock (unwrap u
 
 The gateway pins each server's tool definitions, so a definition that changes after approval is caught. It also hides poisoned tools, gates each call with the same rules as the shell, and withholds injected results. It works with any MCP client, including ones without hooks. Restart your agents after wrapping.
 
-## 6. Optional: your own agents
+## 7. Optional: your own agents
 
 Install the extra for your framework, for example `pip install 'interlockd[langchain]'`, then wrap the tools:
 
@@ -91,7 +95,7 @@ agent = create_react_agent(model, guard_tools([shell]))
 
 The Claude Agent SDK (`guard_options(options)`), Strands, the OpenAI Agents SDK, Google ADK and CrewAI work the same way. See [examples/agents/](../examples/agents/).
 
-## 7. Optional: stronger containment
+## 8. Optional: stronger containment
 
 Hooks only see what an agent reports. To limit an agent at the OS level as well:
 
@@ -100,7 +104,7 @@ interlock egress-proxy &                                       # decides every o
 interlock sandbox --egress http://127.0.0.1:7392 -- claude     # rc files, ~/.ssh and Interlock's files can't be written; network only via the proxy
 ```
 
-## 8. Optional: CI
+## 9. Optional: CI
 
 `interlock scan --fail-on high` and `interlock test` both exit non-zero on a problem. [examples/github-workflow.yml](../examples/github-workflow.yml) runs them in GitHub Actions and uploads SARIF.
 
