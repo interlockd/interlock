@@ -12,6 +12,7 @@ First public release.
 - `interlock mcp`: Interlock as an MCP server with read-only advisory tools (`check_action`, `explain_decision`, `recent_decisions`, `scan_mcp_servers`, `interlock_status`, `suggest_rule_override`); `interlock init --mcp` registers it.
 - Codex: injected tool results are withheld (`decision: block`, measured live).
 - Memory-poisoning protection: writes to agent instruction files (CLAUDE.md, AGENTS.md, ...) and MCP memory tools are recorded, and asked when the content reads as injected or the session took in untrusted content.
+- `interlock egress-proxy`: decides every outbound host (metadata endpoints refused; `--strict` allowlist); `interlock sandbox --egress` makes it the agent's only way out.
 - `interlock sandbox -- <agent>`: OS-level sandbox (macOS seatbelt; Linux bubblewrap) refusing persistence and guard-rail writes, with optional secret-read and network limits.
 - Packaging: PyPI release workflow (trusted publishing) and a Homebrew formula generator for `interlockd/homebrew-tap`.
 - `interlock replay`: re-decide recorded calls with your current policy and see what would change.

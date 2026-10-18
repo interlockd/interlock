@@ -67,6 +67,8 @@ interlock sandbox --deny-secret-reads --local-network-only -- my-agent
 
 Writes are refused to shell startup files, `~/.ssh`, `~/.gitconfig`, LaunchAgents / autostart / systemd user units, and `~/.interlock` (its hook log stays writable), whatever path the write takes. Options: `--deny-secret-reads` (private keys, cloud and registry credentials; breaks git over SSH), `--local-network-only` (outbound to localhost only, so the daemon stays reachable), `--protect PATH` (more read-only paths), `--protect-agent-configs` (agents' own config files; off by default because agents such as Claude Code rewrite theirs at startup). macOS uses `sandbox-exec` (verified live with Claude Code); Linux uses `bubblewrap` (built; not yet run on Linux).
 
+**Egress.** `interlock egress-proxy [--strict]` is an HTTP(S) proxy (default `127.0.0.1:7392`) that decides every outbound destination host with the egress rules (metadata endpoints refused, raw IPs and sharing services asked, unknown hosts recorded; `--strict` refuses anything outside `trust.allowed_hosts`) and records it. HTTPS is tunnelled, never decrypted. `interlock sandbox --egress http://127.0.0.1:7392 -- my-agent` sets the proxy variables and limits the agent's network to localhost at the OS level, so the proxy is the only way out. Verified live on macOS: an allowed host through the proxy answered 200, the metadata endpoint 403, and a direct connection that skipped the proxy never left the machine.
+
 ### 2.0 Custom agents (Strands, LangChain / LangGraph, OpenAI Agents SDK)
 
 Agents you build yourself have no hook file; use the in-process integrations. Both talk to the same local daemon, policy, and audit log as the hooks:

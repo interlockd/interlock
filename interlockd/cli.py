@@ -1679,7 +1679,11 @@ def cmd_sandbox(args) -> int:
     from .sandbox import command, macos_profile
 
     argv = [c for c in args.command if c != "--"]
-    opts = {"deny_secret_reads": args.deny_secret_reads, "local_network_only": args.local_network_only,
+    if args.egress:
+        for k in ("HTTPS_PROXY", "HTTP_PROXY", "https_proxy", "http_proxy", "ALL_PROXY", "all_proxy"):
+            os.environ[k] = args.egress
+        os.environ.setdefault("NO_PROXY", "localhost,127.0.0.1,::1")
+    opts = {"deny_secret_reads": args.deny_secret_reads, "local_network_only": args.local_network_only or bool(args.egress),
             "extra_write_protected": args.protect or [], "protect_agent_configs": args.protect_agent_configs}
     if args.print_profile:
         print(macos_profile(Path.home(), **opts))
@@ -1694,6 +1698,23 @@ def cmd_sandbox(args) -> int:
         return 127
     os.execvp(full[0], full)
     return 0  # pragma: no cover
+
+
+def cmd_egress_proxy(args) -> int:
+    from .egress import Decider, make_server
+    from .integrations.client import InterlockClient
+
+    s = _settings(args)
+    pol = load_policy(s.workspace_roots[0] if s.workspace_roots else None, home=s.home)
+    d = Decider(InterlockClient(home=s.home, agent_type="egress-proxy"), strict=args.strict, allowed_hosts=pol.trust.allowed_hosts)
+    srv = make_server(args.listen, d)
+    print(f"interlock egress proxy on http://{args.listen}{' (strict)' if args.strict else ''}; "
+          f"use HTTPS_PROXY=http://{args.listen} or `interlock sandbox --egress http://{args.listen} -- <agent>`", flush=True)
+    try:
+        srv.serve_forever(poll_interval=0.5)
+    except KeyboardInterrupt:
+        pass
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1786,8 +1807,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--protect-agent-configs", action="store_true",
                    help="also make agents' own config files read-only (some agents rewrite theirs at startup)")
     p.add_argument("--print-profile", action="store_true", help="print the macOS profile and exit")
+    p.add_argument("--egress", metavar="PROXY_URL", help="route all traffic through this egress proxy (implies --local-network-only)")
     p.add_argument("command", nargs=argparse.REMAINDER)
     p.set_defaults(fn=cmd_sandbox)
+
+    p = sub.add_parser("egress-proxy", help="HTTP(S) proxy that decides every outbound host (pair with sandbox --egress)")
+    p.add_argument("--listen", default="127.0.0.1:7392"); p.add_argument("--strict", action="store_true",
+                   help="refuse hosts outside trust.allowed_hosts")
+    p.set_defaults(fn=cmd_egress_proxy)
 
     p = sub.add_parser("serve", help="run the daemon in the foreground"); p.add_argument("--listen"); p.add_argument("--mode", choices=["shadow", "enforce"])
     p.set_defaults(fn=cmd_serve)

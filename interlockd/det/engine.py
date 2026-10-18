@@ -128,11 +128,20 @@ def evaluate(event: InterlockEvent, policy: Policy, tier: TierResult) -> DetResu
         url = args.get("url") or args.get("query") or ""
         host = _host_of(str(url)) if url else None
         if host:
+            # the same host checks, in the same order, as shell egress (packs.check_egress): web tools and the egress
+            # proxy reach the metadata endpoint just as well as curl does
+            from .packs import METADATA_HOSTS, R_EGRESS_METADATA, R_EGRESS_RAW_IP, SHARE_HOSTS, _is_ip
+
             res.normalized["egress_hosts"] = [host]
-            if any(s in host for s in ("gist.github.com", "pastebin", "transfer.sh", "webhook.site")):
-                res.add(policy, R_EGRESS_SHARE, path="tool_call.arguments.url", subject=host)
+            where = "tool_call.arguments.url"
+            if host in METADATA_HOSTS or host.startswith("169.254."):
+                res.add(policy, R_EGRESS_METADATA, path=where, subject=host)
+            elif any(s in host for s in SHARE_HOSTS):
+                res.add(policy, R_EGRESS_SHARE, path=where, subject=host)
+            elif _is_ip(host) and not _host_allowed(host, policy.trust.allowed_hosts):
+                res.add(policy, R_EGRESS_RAW_IP, path=where, subject=host)
             elif not _host_allowed(host, policy.trust.allowed_hosts):
-                res.add(policy, R_EGRESS_UNKNOWN, path="tool_call.arguments.url", subject=host)
+                res.add(policy, R_EGRESS_UNKNOWN, path=where, subject=host)
 
     res.harm = harm_for(res)
     return res

@@ -56,6 +56,7 @@ Start in **shadow** mode (decide and record, never block), check `interlock repo
 | `interlock gateway wrap` | Route your MCP servers through the gateway: pins tool definitions, hides poisoned or changed tools, gates calls, withholds injected results |
 | `interlock mcp` | An MCP server your agent can ask: "would this be blocked?", "why was that stopped?" (`interlock init --mcp` registers it) |
 | `interlock sandbox -- <agent>` | Run your agent in an OS sandbox: shell rc files, ~/.ssh, LaunchAgents, and Interlock's own files can't be written, whatever path the write takes |
+| `interlock egress-proxy` | An HTTP(S) proxy that decides every outbound host; `interlock sandbox --egress` makes it the only way out |
 | `interlock scan` | Audit your MCP servers and agent settings: unpinned packages, inline secrets, broad filesystem access, auto-approved tools |
 | `interlock doctor` | Check protection is actually on (hooks present, shims untampered, daemon up) |
 | `interlock selftest` | Send attack shapes through the live daemon in each agent's hook format and see what your policy stops |
