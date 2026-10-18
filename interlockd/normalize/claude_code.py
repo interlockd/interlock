@@ -70,7 +70,7 @@ def normalize_claude_code(payload: dict[str, Any], *, agent_type: str = "claude-
                 text = text or str(payload.get("error"))
         result = ToolResult(content=text, evidence=evidence)
     mcp = payload.get("mcp_server") if isinstance(payload.get("mcp_server"), dict) else None
-    caps = CLAUDE_CAPABILITIES if agent_type == "claude-code" else CODEX_CAPABILITIES
+    caps = CLAUDE_CAPABILITIES if agent_type in ("claude-code", "claude-agent-sdk") else CODEX_CAPABILITIES
     return InterlockEvent(
         kind=kind,
         adapter=AdapterInfo(name=agent_type, version=adapter_version),

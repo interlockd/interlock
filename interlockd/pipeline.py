@@ -207,7 +207,7 @@ class Daemon:
     # ---- helpers -------------------------------------------------------------------------------------
     def _fill_user_messages(self, event: InterlockEvent) -> int:
         """Hooks carry no user messages; read them from the harness transcript. Returns the turn number."""
-        if event.adapter.name in ("claude-code", "codex"):
+        if event.adapter.name in ("claude-code", "claude-agent-sdk", "codex"):
             path = event.context.transcript_path
             if event.context.user_messages is None and path:
                 event.context.user_messages = self.claude_transcript.user_messages(path, self.settings.user_messages_n)

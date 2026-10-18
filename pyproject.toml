@@ -18,6 +18,7 @@ langchain = ["langchain-core>=1.0"]                      # interlockd.integratio
 openai-agents = ["openai-agents>=0.20"]                  # interlockd.integrations.openai_agents
 google-adk = ["google-adk>=2.0"]                         # interlockd.integrations.google_adk
 crewai = ["crewai>=1.10"]                                # interlockd.integrations.crewai
+claude-agent-sdk = ["claude-agent-sdk>=0.2"]             # interlockd.integrations.claude_agent_sdk
 promptguard = ["transformers>=4.44,<6", "torch>=2.3"]   # optional classifier for the local injection probe
 dev = ["pytest>=8.3,<10", "moto[dynamodb]>=5.0,<6", "boto3>=1.35,<2", "ruff>=0.6,<1", "cedarpy>=4.7,<5"]
 

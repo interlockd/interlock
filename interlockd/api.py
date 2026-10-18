@@ -234,6 +234,7 @@ class ApiServer:
                     return
                 if u.path not in ("/interlock/v1/decide", "/interlock/v1/hooks/kiro", "/interlock/v1/hooks/claude-code",
                                   "/interlock/v1/hooks/codex", "/interlock/v1/hooks/cursor", "/interlock/v1/hooks/gemini-cli",
+                                  "/interlock/v1/hooks/claude-agent-sdk",
                                   "/interlock/v1/hooks/copilot-cli", "/interlock/v1/hooks/windsurf", "/interlock/v1/hooks/antigravity"):
                     self._send(404, {"error": "not found"})
                     return

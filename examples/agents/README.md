@@ -5,6 +5,7 @@ credentials; Interlock itself needs `interlock init` (or `interlock start`) so t
 
 | File | Framework | Install |
 |---|---|---|
+| `claude_agent_sdk_agent.py` | Claude Agent SDK | `pip install 'interlockd[claude-agent-sdk]'` |
 | `strands_agent.py` | Strands Agents | `pip install 'interlockd[strands]'` |
 | `langgraph_agent.py` | LangChain / LangGraph | `pip install 'interlockd[langchain]' langgraph langchain-openai` |
 | `openai_agents.py` | OpenAI Agents SDK | `pip install 'interlockd[openai-agents]'` |

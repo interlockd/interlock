@@ -3,6 +3,7 @@
 ## 0.1.1 (unreleased)
 
 - Google ADK and CrewAI integrations.
+- Claude Agent SDK integration (`guard_options`): in-process PreToolUse / PostToolUse hooks, verified live (a refused force-push, a withheld injected README).
 - `interlock pause` / `resume` kill switch.
 - Linux sandbox (bubblewrap) verified in CI.
 - Repository policies: a committed `<repo>/.interlock/policy.yaml` applies to every call inside the repository, re-read on change. It can only tighten your policy unless you list the repository in `trust.trusted_workspaces`; `interlock policy lint --workspace <repo>` shows what was not applied.

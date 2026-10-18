@@ -89,7 +89,7 @@ from interlockd.integrations.langchain import guard_tools
 agent = create_react_agent(model, guard_tools([shell]))
 ```
 
-Strands, the OpenAI Agents SDK, Google ADK and CrewAI work the same way. See [examples/agents/](../examples/agents/).
+The Claude Agent SDK (`guard_options(options)`), Strands, the OpenAI Agents SDK, Google ADK and CrewAI work the same way. See [examples/agents/](../examples/agents/).
 
 ## 7. Optional: stronger containment
 
