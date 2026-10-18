@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.1 (unreleased)
+## 0.1.1 (2026-10-18)
 
 - Google ADK and CrewAI integrations.
 - Semantic Kernel integration (`guard_kernel`): a function-invocation filter, tested through a real Kernel.
