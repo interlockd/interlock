@@ -38,8 +38,8 @@ jobs:
           .venv/bin/pytest -q tests/test_sandbox.py -rs
       - name: Framework integrations against a real daemon
         run: |
-          uv pip install --python .venv/bin/python strands-agents langchain-core openai-agents google-adk claude-agent-sdk
-          .venv/bin/pytest -q tests/test_strands.py tests/test_langchain.py tests/test_openai_agents.py tests/test_google_adk.py tests/test_claude_agent_sdk.py
+          uv pip install --python .venv/bin/python strands-agents langchain-core openai-agents google-adk claude-agent-sdk semantic-kernel
+          .venv/bin/pytest -q tests/test_strands.py tests/test_langchain.py tests/test_openai_agents.py tests/test_google_adk.py tests/test_claude_agent_sdk.py tests/test_semantic_kernel.py
       - name: CrewAI integration (own environment)
         run: |
           uv venv /tmp/crewai --python 3.12

@@ -3,6 +3,7 @@
 ## 0.1.1 (unreleased)
 
 - Google ADK and CrewAI integrations.
+- Semantic Kernel integration (`guard_kernel`): a function-invocation filter, tested through a real Kernel.
 - Claude Agent SDK integration (`guard_options`): in-process PreToolUse / PostToolUse hooks, verified live (a refused force-push, a withheld injected README).
 - `interlock pause` / `resume` kill switch.
 - Linux sandbox (bubblewrap) verified in CI.

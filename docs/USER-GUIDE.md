@@ -69,7 +69,7 @@ Writes are refused to shell startup files, `~/.ssh`, `~/.gitconfig`, LaunchAgent
 
 **Egress.** `interlock egress-proxy [--strict]` is an HTTP(S) proxy (default `127.0.0.1:7392`) that decides every outbound destination host with the egress rules (metadata endpoints refused, raw IPs and sharing services asked, unknown hosts recorded; `--strict` refuses anything outside `trust.allowed_hosts`) and records it. HTTPS is tunnelled, never decrypted. `interlock sandbox --egress http://127.0.0.1:7392 -- my-agent` sets the proxy variables and limits the agent's network to localhost at the OS level, so the proxy is the only way out. Verified live on macOS: an allowed host through the proxy answered 200, the metadata endpoint 403, and a direct connection that skipped the proxy never left the machine.
 
-### 2.0 Custom agents (Claude Agent SDK, Strands, LangChain / LangGraph, OpenAI Agents SDK, Google ADK, CrewAI)
+### 2.0 Custom agents (Claude Agent SDK, Strands, LangChain / LangGraph, OpenAI Agents SDK, Google ADK, CrewAI, Semantic Kernel)
 
 Agents you build yourself have no hook file; use the in-process integrations. Both talk to the same local daemon, policy, and audit log as the hooks:
 
@@ -93,6 +93,10 @@ agent = guard_agent(LlmAgent(name="dev", model=..., tools=[shell, search]))
 # CrewAI   (pip install 'interlockd[crewai]'): global tool hooks for every crew in the process
 from interlockd.integrations import crewai
 crewai.install()
+
+# Semantic Kernel   (pip install 'interlockd[semantic-kernel]'): a function-invocation filter on the kernel
+from interlockd.integrations.semantic_kernel import guard_kernel
+kernel = guard_kernel(Kernel())
 
 # OpenAI Agents SDK   (pip install 'interlockd[openai-agents]'): uses the SDK's own tool guardrails
 from interlockd.integrations.openai_agents import guard_agent_tools

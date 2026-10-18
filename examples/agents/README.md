@@ -11,6 +11,7 @@ credentials; Interlock itself needs `interlock init` (or `interlock start`) so t
 | `openai_agents.py` | OpenAI Agents SDK | `pip install 'interlockd[openai-agents]'` |
 | `google_adk_agent.py` | Google ADK | `pip install 'interlockd[google-adk]'` |
 | `crewai_crew.py` | CrewAI | `pip install 'interlockd[crewai]'` |
+| `semantic_kernel_agent.py` | Semantic Kernel | `pip install 'interlockd[semantic-kernel]'` |
 
 In every case a refused tool call never runs (the model receives Interlock's notice instead), and a tool result
 that carries injected instructions is replaced before the model reads it. Decisions show up in `interlock log`.
