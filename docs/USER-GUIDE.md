@@ -56,6 +56,17 @@ Codex asks you to trust new hooks: open Codex and run `/hooks` once. Kiro reads 
 
 From a source checkout instead: `uv venv --python 3.12 && uv pip install -e ".[dev]" --python .venv/bin/python`, then use `.venv/bin/interlock`.
 
+### Sandboxing an agent (`interlock sandbox`)
+
+Hooks see what an agent reports. To also hold the line at the OS level, start the agent inside a sandbox:
+
+```sh
+interlock sandbox -- claude                       # or codex, cursor-agent, copilot, ...
+interlock sandbox --deny-secret-reads --local-network-only -- my-agent
+```
+
+Writes are refused to shell startup files, `~/.ssh`, `~/.gitconfig`, LaunchAgents / autostart / systemd user units, and `~/.interlock` (its hook log stays writable), whatever path the write takes. Options: `--deny-secret-reads` (private keys, cloud and registry credentials; breaks git over SSH), `--local-network-only` (outbound to localhost only, so the daemon stays reachable), `--protect PATH` (more read-only paths), `--protect-agent-configs` (agents' own config files; off by default because agents such as Claude Code rewrite theirs at startup). macOS uses `sandbox-exec` (verified live with Claude Code); Linux uses `bubblewrap` (built; not yet run on Linux).
+
 ### 2.0 Custom agents (Strands, LangChain / LangGraph, OpenAI Agents SDK)
 
 Agents you build yourself have no hook file; use the in-process integrations. Both talk to the same local daemon, policy, and audit log as the hooks:

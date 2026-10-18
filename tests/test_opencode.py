@@ -27,7 +27,16 @@ await hooks["tool.execute.after"]({tool: "read", sessionID: "oc1"}, {args: {file
 console.log(JSON.stringify(out));
 """
 
-pytestmark = pytest.mark.skipif(shutil.which("node") is None, reason="node not available")
+def _node_works() -> bool:
+    if shutil.which("node") is None:
+        return False
+    try:
+        return subprocess.run(["node", "--version"], capture_output=True, timeout=10, check=False).returncode == 0
+    except OSError:
+        return False
+
+
+pytestmark = pytest.mark.skipif(not _node_works(), reason="node not available or not runnable")
 
 
 @pytest.fixture

@@ -1675,6 +1675,27 @@ def cmd_replay(args) -> int:
     return 0
 
 
+def cmd_sandbox(args) -> int:
+    from .sandbox import command, macos_profile
+
+    argv = [c for c in args.command if c != "--"]
+    opts = {"deny_secret_reads": args.deny_secret_reads, "local_network_only": args.local_network_only,
+            "extra_write_protected": args.protect or [], "protect_agent_configs": args.protect_agent_configs}
+    if args.print_profile:
+        print(macos_profile(Path.home(), **opts))
+        return 0
+    if not argv:
+        print("usage: interlock sandbox [--deny-secret-reads] [--local-network-only] [--protect PATH] -- <command...>", file=sys.stderr)
+        return 2
+    try:
+        full = command(argv, **opts)
+    except RuntimeError as e:
+        print(f"interlock sandbox: {e}", file=sys.stderr)
+        return 127
+    os.execvp(full[0], full)
+    return 0  # pragma: no cover
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="interlock", description="Interlock: a pre/post-action interlock for coding agents")
     ap.add_argument("--home", help="Interlock home (default ~/.interlock or $INTERLOCK_HOME)")
@@ -1757,6 +1778,16 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--days", type=int, default=30); p.add_argument("--limit", type=int, default=5000)
     p.add_argument("--show", type=int, default=30); p.add_argument("--all", action="store_true", help="also show ask<->block changes")
     p.set_defaults(fn=cmd_replay)
+
+    p = sub.add_parser("sandbox", help="run a command (e.g. your agent) in an OS sandbox derived from the policy")
+    p.add_argument("--deny-secret-reads", action="store_true", help="also refuse reads of private keys and cloud credentials")
+    p.add_argument("--local-network-only", action="store_true", help="limit outbound network to localhost")
+    p.add_argument("--protect", action="append", help="extra path to make read-only (repeatable)")
+    p.add_argument("--protect-agent-configs", action="store_true",
+                   help="also make agents' own config files read-only (some agents rewrite theirs at startup)")
+    p.add_argument("--print-profile", action="store_true", help="print the macOS profile and exit")
+    p.add_argument("command", nargs=argparse.REMAINDER)
+    p.set_defaults(fn=cmd_sandbox)
 
     p = sub.add_parser("serve", help="run the daemon in the foreground"); p.add_argument("--listen"); p.add_argument("--mode", choices=["shadow", "enforce"])
     p.set_defaults(fn=cmd_serve)

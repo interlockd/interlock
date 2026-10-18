@@ -38,7 +38,7 @@ Stated plainly, because a security tool that overstates its coverage is dangerou
 
 | Limit | Why | Mitigation |
 |---|---|---|
-| Only actions that pass through an enforcement point are gated | a process the agent already started, a second agent without hooks, or a tool the hook matcher doesn't cover is invisible | install for every agent (`interlock init`); route MCP through the gateway; `doctor` and `scan` flag unprotected agents. Network and sandbox enforcement are on the roadmap |
+| Only actions that pass through an enforcement point are gated | a process the agent already started, a second agent without hooks, or a tool the hook matcher doesn't cover is invisible to the hooks | install for every agent (`interlock init`); route MCP through the gateway; run the agent under `interlock sandbox`, which refuses persistence and guard-rail writes at the OS level whatever path they take; `doctor` and `scan` flag unprotected agents. A network egress proxy is on the roadmap |
 | The agent runs as your user | it can technically edit hook files, the policy, or the shim | Interlock refuses writes to agent configs and its own files; `interlock doctor` detects removed hooks and modified shims; the audit log is hash-chained (`interlock audit verify`) |
 | Default fail mode is open for most categories | a stopped daemon should not stop all work | the high-risk categories (exfiltration, malicious commands, persistence, secret leaks, privilege escalation) fail closed; `doctor` reports calls that ran while the daemon was down |
 | Shell analysis is static | commands assembled at runtime (strings built and executed later) can hide intent | constructs that build-and-execute (eval, decode-and-run, pipe to a shell) are themselves rules; ambiguous cases ask |
