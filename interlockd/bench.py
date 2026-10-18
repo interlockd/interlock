@@ -90,14 +90,16 @@ def run(rounds: int = 3, http_calls: int = 300, shim_calls: int = 100) -> dict[s
                     t0 = time.perf_counter()
                     subprocess.run(["sh", str(shim)], input=json.dumps(payload), text=True, capture_output=True, env=env, timeout=10, check=False)
                     t.append((time.perf_counter() - t0) * 1000)
-                out[label] = _pct(t)
+                if t:
+                    out[label] = _pct(t)
             floor = f'payload=$(cat); curl -sf -m 5 http://{host}:{port}/interlock/v1/health >/dev/null'
             t = []
             for _ in range(shim_calls):
                 t0 = time.perf_counter()
                 subprocess.run(["sh", "-c", floor], input="{}", text=True, capture_output=True, timeout=10, check=False)
                 t.append((time.perf_counter() - t0) * 1000)
-            out["floor"] = _pct(t)
+            if t:
+                out["floor"] = _pct(t)
         api.shutdown()
     finally:
         shutil.rmtree(home, ignore_errors=True)

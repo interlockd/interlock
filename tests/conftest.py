@@ -60,5 +60,6 @@ def daemon(settings: Settings) -> Daemon:
 
 @pytest.fixture(autouse=True)
 def _no_update_check(monkeypatch):
-    """Tests never call PyPI."""
+    """Tests never call PyPI, and never pick up a repository policy from wherever the suite is run."""
     monkeypatch.setenv("INTERLOCK_NO_UPDATE_CHECK", "1")
+    monkeypatch.setenv("INTERLOCK_REPO_POLICIES", "0")

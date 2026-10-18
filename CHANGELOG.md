@@ -5,6 +5,7 @@
 - Google ADK and CrewAI integrations.
 - `interlock pause` / `resume` kill switch.
 - Linux sandbox (bubblewrap) verified in CI.
+- Repository policies: a committed `<repo>/.interlock/policy.yaml` applies to every call inside the repository, re-read on change. It can only tighten your policy unless you list the repository in `trust.trusted_workspaces`; `interlock policy lint --workspace <repo>` shows what was not applied.
 - `interlock bench`: decision, probe, HTTP and hook-shim latency on your machine; see `docs/PERFORMANCE.md`.
 - Faster audit writes: the hash chain's head is cached between appends instead of re-read; decision p50 4.2 ms -> 1.2 ms.
 - `interlock doctor` reports when a newer release is on PyPI (`INTERLOCK_NO_UPDATE_CHECK=1` turns it off).

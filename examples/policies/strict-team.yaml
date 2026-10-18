@@ -1,5 +1,6 @@
 # A strict starting point for a team: enforce, ask before anything leaves the org, no new MCP servers without approval.
-# Copy to ~/.interlock/policy.yaml (or <repo>/.interlock/policy.yaml), then `interlock policy lint` and `interlock restart`.
+# Commit it as <repo>/.interlock/policy.yaml: everyone with Interlock gets it inside the repo, tighten-only (see
+# `interlock policy lint --workspace .`). Or copy it to ~/.interlock/policy.yaml, then `interlock restart`.
 version: 1
 mode: enforce
 

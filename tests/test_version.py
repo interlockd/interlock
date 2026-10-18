@@ -17,3 +17,13 @@ def test_versions_agree():
         if shim.is_file():
             for v in re.findall(r'VERSION\s*=\s*"([^"]+)"', shim.read_text()):
                 assert v in (__version__, "__VERSION__"), shim     # OpenCode's plugin is filled in at install
+
+
+def test_cli_version(capsys):
+    import pytest
+
+    from interlockd.cli import main
+
+    with pytest.raises(SystemExit) as e:
+        main(["--version"])
+    assert e.value.code == 0 and capsys.readouterr().out.strip() == f"interlock {__version__}"

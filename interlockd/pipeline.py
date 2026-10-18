@@ -51,6 +51,9 @@ class Daemon:
         if not self.policy.trust.workspace_roots and settings.workspace_roots:
             self.policy.trust.workspace_roots = list(settings.workspace_roots)
         self.mode = self.policy.mode if policy is not None else settings.mode
+        from .policy.workspace import RepoPolicies
+
+        self.repo_policies = RepoPolicies(interlock_home=settings.home)
         self.backend = None      # DecisionBackend, set by the CLI from policy.judge.primary
         self.probe = None        # BedrockGuardrailsProbe, set by the CLI when policy.judge.probe.enabled
         from .control import PauseState
@@ -270,7 +273,10 @@ class Daemon:
         turn_no = self._fill_user_messages(event)
         t_ctx = time.perf_counter()
 
-        pol = self.policy
+        pol, repo_pol = self.repo_policies.resolve(self.policy, event.context.cwd)
+        # a repository policy can switch enforce on, never off, unless you trust that repository
+        mode = self.mode if repo_pol is None else (pol.mode if repo_pol["trusted"] else
+                                                     "enforce" if pol.mode == "enforce" else self.mode)
         tier = route(
             event,
             workspace_roots=pol.trust.workspace_roots,
@@ -313,7 +319,7 @@ class Daemon:
             disposition, reason, notice, findings, unjudged = (composed.disposition, composed.reason, composed.notice,
                                                               composed.findings, composed.unjudged)
             action_class = det.action_class
-            if composed.needs_judge and self.backend is not None and self.policy.judge.ask_intent_for_model_rules:
+            if composed.needs_judge and self.backend is not None and pol.judge.ask_intent_for_model_rules:
                 disposition, extra, rows, more_unjudged = self._judge_pre(event, det, session, composed)
                 findings = findings + extra
                 unjudged = unjudged + more_unjudged
@@ -324,7 +330,7 @@ class Daemon:
                     notice = render_notice(disposition, findings, reason=reason)
             elif composed.needs_judge:
                 unjudged = unjudged + ["judge"]   # no backend configured: a model-routed rule is recorded, not enforced
-            if disposition == "ask" and not event.capabilities.ask and self.mode == "enforce":
+            if disposition == "ask" and not event.capabilities.ask and mode == "enforce":
                 disposition, extra, rows, more_unjudged = self._confirm_via_transcript(event, det, session, findings)
                 findings = findings + extra
                 unjudged = unjudged + more_unjudged
@@ -338,7 +344,7 @@ class Daemon:
             reason=reason,
             notice=notice,
             findings=findings,
-            mode=self.mode,  # type: ignore[arg-type]
+            mode=mode,  # type: ignore[arg-type]
             tier=tier.tier,
             action_class=action_class,
             unjudged=unjudged,
@@ -356,7 +362,7 @@ class Daemon:
             verdict.findings = [*verdict.findings, Finding(category="control.kill_switch", severity="critical", rule=R_PAUSED,
                                                            detector="interlock.control", path="session", subject=why)]
             disposition = "block"
-        self.ledger.record_disposition(event.session_hint, disposition if self.mode == "enforce" else "allow")
+        self.ledger.record_disposition(event.session_hint, disposition if mode == "enforce" else "allow")
         flow_observe(event, session, pol, findings)
 
         t_dec = time.perf_counter()
@@ -370,6 +376,8 @@ class Daemon:
                            normalized=({**det.normalized, "harm": det.harm} if det is not None else None),
                            answers=answers_rows, guardrails=guard_scores)
         rec["timing_ms"] = dict(verdict.timing_ms)  # the stored copy must not alias the live verdict
+        if repo_pol is not None:
+            rec["policy_sha256"], rec["workspace_policy"] = pol.sha256, repo_pol
         self.spool.append(rec)
         if self.otel is not None:
             self.otel.submit(rec)

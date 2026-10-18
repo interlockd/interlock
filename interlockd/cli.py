@@ -1622,18 +1622,29 @@ def cmd_selftest(args) -> int:
 
 
 def cmd_policy(args) -> int:
+    from .policy.workspace import find_repo_policy, is_trusted, load_repo_policy
     from .policy_lint import format_issues, lint
 
     s = _settings(args)
     try:
-        pol = load_policy(args.workspace or (s.workspace_roots[0] if s.workspace_roots else None), home=s.home)
+        pol = load_policy(s.workspace_roots[0] if s.workspace_roots else None, home=s.home)
     except Exception as e:  # noqa: BLE001
         print(f"policy does not load: {e}")
         return 1
+    repo = find_repo_policy(args.workspace) if args.workspace else None
+    ignored: list[str] = []
+    if repo is not None and repo.parent != s.home.resolve() and str(repo) not in {str(Path(x).resolve()) for x in pol.source_paths}:
+        trusted = is_trusted(pol, repo)
+        pol, ignored = load_repo_policy(pol, repo)
+        print(f"repository policy {repo}: " + ("trusted (trust.trusted_workspaces), applies in full" if trusted else
+              "tighten-only (add the repository to trust.trusted_workspaces in your policy to apply it in full)"))
+        for k in ignored:
+            print(f"  ! {k}: not applied (a repository policy can only tighten yours)" if not k.startswith("(")
+                  else f"  ✗ {k}: the whole file is ignored")
     print(f"policy: {pol.source_paths or ['built-in defaults']}")
     text, rc = format_issues(lint(pol))
     print(text)
-    return rc
+    return 1 if any(k.startswith("(") for k in ignored) else rc
 
 
 def cmd_replay(args) -> int:
@@ -1756,6 +1767,7 @@ def cmd_bench(args) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="interlock", description="Interlock: a pre/post-action interlock for coding agents")
+    ap.add_argument("--version", action="version", version=f"interlock {__version__}")
     ap.add_argument("--home", help="Interlock home (default ~/.interlock or $INTERLOCK_HOME)")
     sub = ap.add_subparsers(dest="cmd", required=True)
 

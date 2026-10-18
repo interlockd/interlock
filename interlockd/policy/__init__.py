@@ -36,6 +36,7 @@ class Trust(Strict):
         "sum.golang.org", "repo.maven.apache.org", "localhost", "127.0.0.1",
     ])
     allowed_git_remotes: list[str] = Field(default_factory=list)
+    trusted_workspaces: list[str] = Field(default_factory=list)   # repos whose .interlock/policy.yaml applies in full
     protected_branches: list[str] = Field(default_factory=lambda: ["main", "master", "release/*", "prod", "production"])
     declared_packages_only: bool = True
     allowed_package_indexes: list[str] = Field(default_factory=lambda: [

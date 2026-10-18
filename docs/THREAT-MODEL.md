@@ -44,6 +44,7 @@ Stated plainly, because a security tool that overstates its coverage is dangerou
 | Shell analysis is static | commands assembled at runtime (strings built and executed later) can hide intent | constructs that build-and-execute (eval, decode-and-run, pipe to a shell) are themselves rules; ambiguous cases ask |
 | Injection detection is heuristic | a novel phrasing can score below the threshold | multiple detectors compose deny-wins (local heuristics, optional classifier, Bedrock Guardrails, the judge); toxic-flow detection catches the dangerous *combination* even when one step is missed |
 | Some agents can't replace a tool result | the hook contract doesn't allow it (Kiro, Windsurf, Antigravity, Cursor for non-MCP tools) | the detection is recorded and visible in `interlock log` / `report`; warnings are added where supported |
+| A repository's own `.interlock/policy.yaml` is written by whoever commits to it | a poisoned repository could try to switch rules off | repository policies only tighten yours unless you list the repository in `trust.trusted_workspaces`; `policy lint --workspace` shows what was not applied |
 | Shadow mode enforces nothing | it is the default so you can see decisions first | `interlock report` shows what enforce would have done; `interlock enforce` |
 | Adapters built from documentation | contracts have differed from their docs before | adapters say "built, not verified live" until payloads are captured from the real tool |
 
