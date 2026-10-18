@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import logging
+import socketserver
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -41,11 +42,21 @@ from .render import render_claude_code, render_cursor, render_gemini_cli, render
 log = logging.getLogger("interlockd.api")
 
 
+class _Server(ThreadingHTTPServer):
+    """HTTPServer.server_bind resolves the host with socket.getfqdn(), a reverse-DNS lookup that can stall for tens
+    of seconds on machines with slow DNS (seen on CI runners). The daemon binds loopback; it never needs the name."""
+
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name, self.server_port = str(host), port
+
+
 class ApiServer:
     def __init__(self, daemon: Daemon, token: str, host: str, port: int):
         self.daemon, self.token = daemon, token
         handler = self._make_handler()
-        self.httpd = ThreadingHTTPServer((host, port), handler)
+        self.httpd = _Server((host, port), handler)
         self.httpd.daemon_threads = True
         self._thread: threading.Thread | None = None
 
