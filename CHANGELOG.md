@@ -4,9 +4,10 @@
 
 First public release.
 
-- `interlock init` / `uninstall`: one-command setup for Claude Code, Codex, and Kiro (verified live), plus Cursor, Gemini CLI, GitHub Copilot CLI, Windsurf, and Antigravity CLI (built from their documented hooks); background service (launchd, systemd user, or detached process); shadow mode by default.
+- `interlock init` / `uninstall`: one-command setup for Claude Code, Codex, and Kiro (verified live), plus Cursor, Gemini CLI, GitHub Copilot CLI, Windsurf, Antigravity CLI, and OpenCode (built from their documented hooks and plugin API); background service (launchd, systemd user, or detached process); shadow mode by default.
 - Pre-action gate: 48 deterministic rules in 6 packs (shell, git, egress, persistence, secrets, packages) with a shell decomposer.
 - Post-action injection probe that runs locally (no cloud), withholding injected results in Claude Code.
+- Custom agents: `interlockd.integrations.strands.InterlockHooks` and `interlockd.integrations.langchain.guard_tools`.
 - MCP gateway: `interlock gateway wrap | unwrap | status` routes stdio MCP servers through `interlock mcp-proxy` and remote (Streamable HTTP) servers through the daemon, which pins tool definitions (rug-pull detection), hides poisoned tools, gates tool calls with the same rules as the agent's own shell, and withholds injected results.
 - `interlock mcp`: Interlock as an MCP server with read-only advisory tools (`check_action`, `explain_decision`, `recent_decisions`, `scan_mcp_servers`, `interlock_status`, `suggest_rule_override`); `interlock init --mcp` registers it.
 - Codex: injected tool results are withheld (`decision: block`, measured live).

@@ -25,11 +25,12 @@ IN_WORKSPACE_WRITE_TOOLS = {
     "fs_write", "str_replace", "fs_append", "write", "smart_relocate", "create_file",
     "Write", "Edit", "MultiEdit", "NotebookEdit", "apply_patch",
     "write_file", "replace",                                                 # Gemini CLI
+    "edit", "patch", "multiedit",                                           # OpenCode (write and read are shared)
 }
 DESTRUCTIVE_TOOLS = {"delete_file", "remove_file", "Delete"}
 SHELL_TOOLS = {"execute_bash", "shell", "Bash", "PowerShell", "control_bash_process", "exec_command",
                "Shell", "run_shell_command", "bash", "powershell"}          # Cursor, Gemini CLI, Copilot CLI
-NETWORK_TOOLS = {"web_fetch", "remote_web_search", "WebFetch", "WebSearch", "web_search", "google_web_search"}
+NETWORK_TOOLS = {"web_fetch", "remote_web_search", "WebFetch", "WebSearch", "web_search", "google_web_search", "webfetch"}
 SUBAGENT_TOOLS = {"invoke_sub_agent", "Task", "spawn_agent"}
 
 PATH_KEYS = ("path", "file_path", "filePath", "target", "destination", "source", "notebook_path")

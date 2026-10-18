@@ -74,10 +74,11 @@ def evaluate(event: InterlockEvent, policy: Policy, tier: TierResult) -> DetResu
 
     if tier.action_class == "mcp" or event.context.mcp_server:
         check_mcp_policy(event, res, policy)
-    # MCP tools that run commands (terminal / shell servers) get the same shell analysis as the agent's own shell;
-    # only explicit command keys count, since a generic `args` list means something else on most MCP tools
+    # MCP and unrecognized tools that run commands (terminal servers, SDK tools named run_command / exec / terminal)
+    # get the same shell analysis as the agent's own shell; only explicit command keys count, since a generic `args`
+    # list means something else on most tools
     mcp_cmd = next((args[k] for k in ("command", "cmd", "script", "commandLine")
-                    if isinstance(args.get(k), str) and args[k].strip()), None) if tier.action_class == "mcp" else None
+                    if isinstance(args.get(k), str) and args[k].strip()), None) if tier.action_class in ("mcp", "other") else None
     if name in SHELL_TOOLS or mcp_cmd is not None:
         cmd = _command_of(event) if mcp_cmd is None else mcp_cmd
         if cmd is not None:

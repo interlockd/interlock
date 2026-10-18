@@ -9,6 +9,7 @@ what `uninstall` reverses. Nothing here needs AWS, a model, or network access.
 from __future__ import annotations
 
 import json
+import os
 import re
 import shutil
 import sys
@@ -19,7 +20,7 @@ from pathlib import Path
 from .config import Settings
 
 MANIFEST = "install-manifest.json"
-HARNESSES = ("claude-code", "codex", "cursor", "gemini-cli", "copilot-cli", "windsurf", "antigravity", "kiro")
+HARNESSES = ("claude-code", "codex", "cursor", "gemini-cli", "copilot-cli", "windsurf", "antigravity", "opencode", "kiro")
 
 STARTER_POLICY = """\
 # Interlock user policy, written by `interlock init`. Layered: built-in defaults <- this file <- <workspace>/.interlock/policy.yaml
@@ -119,6 +120,11 @@ def detect(cwd: Path | None = None) -> list[Detected]:
     out.append(Detected("antigravity", bool(agy or (home / ".gemini" / "antigravity-cli").is_dir()),
                         why=agy or str(home / ".gemini" / "antigravity-cli"), target=home / ".gemini" / "config" / "hooks.json",
                         note=f"Antigravity CLI: {built}; results can't be withheld"))
+    opencode = shutil.which("opencode")
+    oc_dir = Path(os.environ.get("XDG_CONFIG_HOME", home / ".config")) / "opencode"
+    out.append(Detected("opencode", bool(opencode or oc_dir.is_dir()), why=opencode or str(oc_dir),
+                        target=oc_dir / "plugins" / "interlock.js",
+                        note=f"OpenCode plugin: {built}; results are checked but can't be withheld"))
     kiro = shutil.which("kiro") or shutil.which("kiro-cli")
     root = find_kiro_root(cwd)
     out.append(Detected("kiro", bool(root), why=str(root) if root else (kiro or ""),

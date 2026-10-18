@@ -323,6 +323,16 @@ def _write_antigravity_hooks(s: Settings, target: Path) -> Path:
     return shim
 
 
+OPENCODE_PLUGIN_SRC = SHIMS_ROOT / "opencode" / "interlock.js"
+
+
+def _write_opencode_plugin(s: Settings, target: Path) -> Path:
+    """~/.config/opencode/plugins/interlock.js: OpenCode loads every plugin file in that directory."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(OPENCODE_PLUGIN_SRC.read_text().replace("__VERSION__", __version__))
+    return target
+
+
 def _install_claude_code(s: Settings, args) -> int:
     target = (Path.home() / ".claude" / "settings.json") if args.user else (
         Path(args.project or Path.cwd()).expanduser().resolve() / ".claude" / "settings.json")
@@ -1213,6 +1223,8 @@ def cmd_init(args) -> int:
             shim = _write_windsurf_hooks(s, d.target)
         elif d.name == "antigravity":
             shim = _write_antigravity_hooks(s, d.target)
+        elif d.name == "opencode":
+            shim = _write_opencode_plugin(s, d.target)
         else:
             shim, _ = _write_kiro_hooks(s, d.target.parents[2])
         man.hooks = [h for h in man.hooks if h["file"] != str(d.target)] + [
@@ -1289,8 +1301,8 @@ def cmd_uninstall(args) -> int:
             hooks.append({"harness": name, "file": str(f), "marker": str(s.home / "adapters" / name), "created": False})
     for h in hooks:
         f = Path(h["file"])
-        if h["harness"] == "kiro":
-            if f.exists() and h["marker"] in f.read_text():
+        if h["harness"] in ("kiro", "opencode"):
+            if f.exists() and (h["marker"] in f.read_text() or h["harness"] == "opencode"):
                 f.unlink()
                 print(f"removed     {f}")
         elif h["harness"] == "antigravity":
@@ -1604,7 +1616,7 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("init", help="one-command setup: detect harnesses, install hooks, start the daemon")
     p.add_argument("-y", "--yes", action="store_true", help="don't ask for confirmation")
-    p.add_argument("--harness", help="comma-separated subset: claude-code,codex,cursor,gemini-cli,copilot-cli,windsurf,antigravity,kiro (default: all detected)")
+    p.add_argument("--harness", help="comma-separated subset: claude-code,codex,cursor,gemini-cli,copilot-cli,windsurf,antigravity,opencode,kiro (default: all detected)")
     p.add_argument("--enforce", action="store_true", help="start in enforce mode instead of shadow")
     p.add_argument("--no-service", action="store_true", help="don't install a background service")
     p.add_argument("--mcp", action="store_true", help="also register the Interlock MCP server (advisory tools) with each agent")

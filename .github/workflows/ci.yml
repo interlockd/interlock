@@ -29,6 +29,10 @@ jobs:
         run: .venv/bin/interlock test
       - name: Evaluation corpus gate
         run: .venv/bin/interlock test --corpus corpus/archetypes
+      - name: Framework integrations (Strands, LangChain) against a real daemon
+        run: |
+          uv pip install --python .venv/bin/python strands-agents langchain-core
+          .venv/bin/pytest -q tests/test_strands.py tests/test_langchain.py
       - name: Wheel smoke test
         run: |
           uv build --wheel -o dist

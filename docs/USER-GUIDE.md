@@ -56,6 +56,22 @@ Codex asks you to trust new hooks: open Codex and run `/hooks` once. Kiro reads 
 
 From a source checkout instead: `uv venv --python 3.12 && uv pip install -e ".[dev]" --python .venv/bin/python`, then use `.venv/bin/interlock`.
 
+### 2.0 Custom agents (Strands, LangChain / LangGraph)
+
+Agents you build yourself have no hook file; use the in-process integrations. Both talk to the same local daemon, policy, and audit log as the hooks:
+
+```python
+# Strands Agents   (pip install 'interlock[strands]')
+from interlockd.integrations.strands import InterlockHooks
+agent = Agent(tools=[...], hooks=[InterlockHooks()])
+
+# LangChain / LangGraph   (pip install 'interlock[langchain]')
+from interlockd.integrations.langchain import guard_tools
+agent = create_react_agent(model, guard_tools([search, shell]))
+```
+
+A refused call never runs: Strands receives Interlock's notice as a cancelled tool result, LangChain as the tool's output. An injected result is replaced by the notice. Tools you name freely (`run_command`, `exec`, ...) still get the shell rules when they take a `command` argument. Any other framework can call `interlockd.integrations.client.InterlockClient().decide(...)` directly.
+
 ### 2.1 The MCP gateway
 
 Hooks see the tool calls an agent makes; the MCP gateway sees every MCP server the agent talks to, whether or not the agent has hooks. `interlock gateway wrap` (or `interlock init --gateway`) changes each stdio server entry so the agent launches `interlock mcp-proxy` in its place, which starts the real server and relays its messages:

@@ -174,6 +174,11 @@ def expected_shim(harness: str) -> str | None:
         return CLAUDE_SHIM_SRC.read_text().replace("__HARNESS__", harness)
     if harness == "kiro":
         return HOOK_SHIMS["sh"].read_text()
+    if harness == "opencode":
+        from . import __version__
+        from .cli import OPENCODE_PLUGIN_SRC
+
+        return OPENCODE_PLUGIN_SRC.read_text().replace("__VERSION__", __version__)
     return None
 
 
