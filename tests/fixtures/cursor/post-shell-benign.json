@@ -1,0 +1,23 @@
+{
+  "conversation_id": "5525c3e5-1685-4e2e-9222-77583808de5c",
+  "generation_id": "5525c3e5-1685-4e2e-9222-77583808de5c",
+  "model": "default",
+  "tool_name": "Shell",
+  "tool_input": {
+    "command": "echo hello",
+    "cwd": "",
+    "timeout": 30000
+  },
+  "tool_output": "{\"output\":\"hello\\n\",\"exitCode\":0}",
+  "duration": 1027.297,
+  "tool_use_id": "d44b6b45-ea33-4ce5-963e-75fac69f26af",
+  "cwd": "",
+  "session_id": "5525c3e5-1685-4e2e-9222-77583808de5c",
+  "hook_event_name": "postToolUse",
+  "cursor_version": "2026.10.16-e3cb207",
+  "workspace_roots": [
+    "/private/tmp/cuv/proj"
+  ],
+  "user_email": "dev@example.com",
+  "transcript_path": "/Users/dev/.cursor/projects/private-tmp-cuv-proj/agent-transcripts/5525c3e5-1685-4e2e-9222-77583808de5c/5525c3e5-1685-4e2e-9222-77583808de5c.jsonl"
+}

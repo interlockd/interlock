@@ -1,0 +1,10 @@
+{
+  "sessionId": "ca7d68c7-21de-42b9-9384-071f08b6cd91",
+  "timestamp": 1792334103361,
+  "cwd": "/private/tmp/cpv/proj",
+  "toolName": "bash",
+  "toolArgs": {
+    "command": "git push --force origin main",
+    "description": "Force-push main to origin"
+  }
+}

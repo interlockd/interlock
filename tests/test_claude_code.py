@@ -107,10 +107,11 @@ def server(enforce_daemon):
     s.shutdown()
 
 
-def _post(server, harness, payload):
+def _post(server, harness, payload, fmt="claude-code", event=None):
     host, port = server.address
-    req = urllib.request.Request(f"http://{host}:{port}/interlock/v1/hooks/{harness}?format=claude-code",
-                                 data=json.dumps({"adapter": {"name": harness, "version": "t"}, "payload": payload}).encode(), method="POST")
+    adapter = {"name": harness, "version": "t", **({"event": event} if event else {})}
+    req = urllib.request.Request(f"http://{host}:{port}/interlock/v1/hooks/{harness}?format={fmt}",
+                                 data=json.dumps({"adapter": adapter, "payload": payload}).encode(), method="POST")
     req.add_header("authorization", "Bearer tok"); req.add_header("content-type", "application/json")
     with urllib.request.urlopen(req, timeout=5) as r:
         return r.read().decode()
@@ -187,12 +188,23 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 @pytest.mark.parametrize("path", sorted(FIXTURES.glob("*/*.json")), ids=lambda p: f"{p.parent.name}/{p.stem}")
 def test_live_captured_payloads(server, path):
-    """Payloads captured from the real CLIs (Claude Code 2.1.296, Codex 0.162, 2026-10-17), usernames redacted."""
+    """Payloads captured from the real CLIs (Claude Code 2.1.296, Codex 0.162, Cursor CLI 2026.10.16, Copilot CLI
+    1.0.98), usernames and emails redacted."""
     harness, payload = path.parent.name, json.loads(path.read_text())
-    body = _post(server, harness, payload)
-    if path.stem.endswith("-block"):
+    fmt = "claude-code" if harness in ("claude-code", "codex") else harness
+    body = _post(server, harness, payload, fmt=fmt, event="post" if path.stem.startswith("post-") else "pre")
+    if path.stem.endswith("-block") and harness == "cursor":
+        out = json.loads(body)
+        assert out["permission"] == "deny" and "[interlock]" in out["agent_message"]
+    elif path.stem.endswith("-block") and harness == "copilot-cli":
+        out = json.loads(body)
+        assert out["permissionDecision"] == "deny" and "[interlock]" in out["permissionDecisionReason"]
+    elif path.stem.endswith("-block"):
         out = json.loads(body)["hookSpecificOutput"]
         assert out["permissionDecision"] == "deny" and "[interlock]" in out["permissionDecisionReason"]
+    elif path.stem.startswith("post-") and path.stem.endswith("-inject") and harness == "copilot-cli":
+        rep = json.loads(body)["modifiedResult"]                       # Copilot: modifiedResult replaces the result
+        assert rep["resultType"] == "success" and "[interlock]" in rep["textResultForLlm"] and "evil.example" not in rep["textResultForLlm"]
     elif path.stem.startswith("post-") and path.stem.endswith("-inject") and harness == "codex":
         out = json.loads(body)                                         # Codex: decision "block" replaces the result
         assert out["decision"] == "block" and "[interlock]" in out["reason"] and "evil.example" not in out["reason"]

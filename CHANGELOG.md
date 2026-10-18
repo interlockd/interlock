@@ -4,7 +4,7 @@
 
 First public release.
 
-- `interlock init` / `uninstall`: one-command setup for Claude Code, Codex, and Kiro (verified live), plus Cursor, Gemini CLI, GitHub Copilot CLI, Windsurf, Antigravity CLI, and OpenCode (built from their documented hooks and plugin API); background service (launchd, systemd user, or detached process); shadow mode by default.
+- `interlock init` / `uninstall`: one-command setup for Claude Code, Codex, Kiro, Cursor, and GitHub Copilot CLI (verified live), plus Gemini CLI, Windsurf, Antigravity CLI, and OpenCode (built from their documented hooks and plugin API); background service (launchd, systemd user, or detached process); shadow mode by default.
 - Pre-action gate: 48 deterministic rules in 6 packs (shell, git, egress, persistence, secrets, packages) with a shell decomposer.
 - Post-action injection probe that runs locally (no cloud), withholding injected results in Claude Code.
 - Custom agents: `interlockd.integrations.strands.InterlockHooks`, `interlockd.integrations.langchain.guard_tools`, and `interlockd.integrations.openai_agents.guard_agent_tools`.
@@ -12,6 +12,7 @@ First public release.
 - `interlock mcp`: Interlock as an MCP server with read-only advisory tools (`check_action`, `explain_decision`, `recent_decisions`, `scan_mcp_servers`, `interlock_status`, `suggest_rule_override`); `interlock init --mcp` registers it.
 - Codex: injected tool results are withheld (`decision: block`, measured live).
 - Memory-poisoning protection: writes to agent instruction files (CLAUDE.md, AGENTS.md, ...) and MCP memory tools are recorded, and asked when the content reads as injected or the session took in untrusted content.
+- Packaging: PyPI release workflow (trusted publishing) and a Homebrew formula generator for `interlockd/homebrew-tap`.
 - `interlock replay`: re-decide recorded calls with your current policy and see what would change.
 - `interlock policy lint`: unknown rule ids (a typo in an override silently does nothing), weakened critical rules, catch-all allows.
 - `interlock selftest`: attack shapes through the live daemon in each agent's hook format; run by `init`.

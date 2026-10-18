@@ -1,10 +1,10 @@
-# Cursor hooks (documented contract; not yet measured)
+# Cursor hooks (measured)
 
-**Status: built from the documentation, not verified against a running Cursor.** Source: https://cursor.com/docs/agent/hooks (read 2026-10-17). Hooks arrived in Cursor 1.7. Payload shapes used by the tests are in `daemon/tests/test_cursor_gemini.py`; replace them with captures (`tests/fixtures/cursor/`) once measured.
+**Measured:** 2026-10-18 on the Cursor CLI (`cursor-agent` 2026.10.16), `cursor-agent -p --trust --force`, project hooks in `.cursor/hooks.json`. Captures (usernames and the `user_email` field redacted) are fixtures in `daemon/tests/fixtures/cursor/`. Contract source: https://cursor.com/docs/agent/hooks.
 
 ## What Interlock registers
 
-`~/.cursor/hooks.json` (user level; `<project>/.cursor/hooks.json` with `interlock install --cursor --project P`):
+`~/.cursor/hooks.json` (or `<project>/.cursor/hooks.json`; project hooks need a trusted workspace):
 
 ```json
 {"version": 1, "hooks": {
@@ -12,29 +12,21 @@
   "postToolUse": [{"command": "sh ~/.interlock/adapters/cursor/interlock-hook.sh", "type": "command", "timeout": 5, "matcher": "*"}]}}
 ```
 
-`preToolUse` / `postToolUse` cover every tool type (`Shell`, `Read`, `Write`, `Grep`, `Delete`, `Task`, `MCP:<tool>`). The normalizer also accepts `beforeShellExecution` / `afterShellExecution` payloads.
+## Measured input
 
-## Documented input
-
-| Event | Fields Interlock uses |
+| Event | Keys |
 |---|---|
-| `preToolUse` | `hook_event_name`, `conversation_id`, `tool_name`, `tool_input`, `tool_use_id`, `cwd`, `workspace_roots`, `transcript_path` |
-| `postToolUse` | the above plus `tool_output`, `duration` |
-| `postToolUseFailure` | `error_message`, `failure_type` |
+| `preToolUse` | `conversation_id`, `cursor_version`, `cwd`, `generation_id`, `hook_event_name`, `model`, `session_id`, `tool_input`, `tool_name`, `tool_use_id`, `transcript_path`, `user_email`, `workspace_roots` |
+| `postToolUse` | the above plus `duration`, `tool_output` |
 
-## Documented output, and what Interlock emits
+- Shell is `tool_name: "Shell"` with `tool_input {command, cwd, timeout}`; reads are `Read` with `{file_path}`.
+- `tool_output` is a **JSON string**: Shell `{"output": "...", "exitCode": 0}`; Read only `{"file_path", "content_length"}`, **without the file contents**, so Interlock cannot check what the agent reads through Cursor's Read tool (shell output is checked).
+- Payloads include the signed-in user's email; Interlock does not store it.
 
-| Goal | Interlock emits | Documented behaviour |
+## Measured output
+
+| Goal | JSON | Verified |
 |---|---|---|
-| Refuse a call | `{"permission": "deny", "agent_message": "...", "user_message": "..."}` | tool does not run |
-| Ask the user | — | `ask` "is accepted by the schema but not enforced for preToolUse today"; Interlock degrades ask to deny with a notice |
-| Withhold an injected result | `{"updated_mcp_tool_output": ...}` (MCP tools only) | output replacement is MCP-only |
-| Warn after a result | `{"additional_context": "..."}` | annotates the result |
-| No opinion | **exit 1, no output** | exit 0 with output that isn't valid permission JSON *blocks*; any non-zero code other than 2 fails open |
-
-## To verify live
-
-1. Block: a force-push is refused and the agent sees `agent_message`.
-2. No opinion: a benign command runs normally with exit 1 and no output (and Cursor shows no error the user has to dismiss).
-3. Warn on a non-MCP Read of an injected file; withhold on an MCP result.
-4. Project hooks need a trusted workspace.
+| Refuse a call | `{"permission": "deny", "agent_message": "...", "user_message": "..."}` | ✅ the call did not run; the agent reported `Rejected: Interlock blocked this action: ...` |
+| No opinion | no output, **exit 1** | ✅ the call ran normally (exit 1 is fail-open) |
+| Withhold | `updated_mcp_tool_output` (MCP tools only) | not measured |

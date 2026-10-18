@@ -28,7 +28,9 @@ What the gate decides (enforce mode, nothing executed):
 | Claude Code | ✅ verified live: blocks before execution, withholds injected tool results |
 | Codex CLI | ✅ verified live: blocks before execution, withholds injected tool results |
 | Kiro (IDE) | ✅ verified live |
-| Cursor, Gemini CLI, GitHub Copilot CLI, Windsurf, Antigravity CLI, OpenCode | built from their documented hooks/plugins; live verification in progress |
+| Cursor (CLI) | ✅ verified live: blocks before execution |
+| GitHub Copilot CLI | ✅ verified live: blocks before execution, withholds injected tool results |
+| Gemini CLI, Windsurf, Antigravity CLI, OpenCode | built from their documented hooks/plugins; live verification in progress |
 | Your own agents (Strands, LangChain / LangGraph, OpenAI Agents SDK) | ✅ in-process: `Agent(hooks=[InterlockHooks()])`, `guard_tools(tools)`, `guard_agent_tools(agent)` |
 | Any MCP client | ✅ the MCP gateway (`interlock gateway wrap`) gates every stdio MCP server, hooks or not |
 | Windsurf, Cline, GitHub Copilot, and more | hook adapters planned |

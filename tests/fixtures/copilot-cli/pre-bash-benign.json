@@ -1,0 +1,12 @@
+{
+  "sessionId": "00f17aa3-6fe7-4c49-bcf6-4663527399ad",
+  "timestamp": 1792334066615,
+  "cwd": "/private/tmp/cpv/proj",
+  "toolName": "bash",
+  "toolArgs": {
+    "command": "cat README.md",
+    "description": "Display README contents",
+    "mode": "sync",
+    "initial_wait": 30
+  }
+}

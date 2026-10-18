@@ -1,0 +1,20 @@
+{
+  "conversation_id": "5525c3e5-1685-4e2e-9222-77583808de5c",
+  "generation_id": "5525c3e5-1685-4e2e-9222-77583808de5c",
+  "model": "default",
+  "tool_name": "Read",
+  "tool_input": {
+    "file_path": "/private/tmp/cuv/proj/README.md"
+  },
+  "tool_output": "{\"file_path\":\"/private/tmp/cuv/proj/README.md\",\"content_length\":135}",
+  "duration": 8.34,
+  "tool_use_id": "call-829cd5f1-c441-4d6e-a464-a7fa44ec3b7b-1\nfc_37ff9d2b-071e-9637-af8d-a68f93432b84_1",
+  "session_id": "5525c3e5-1685-4e2e-9222-77583808de5c",
+  "hook_event_name": "postToolUse",
+  "cursor_version": "2026.10.16-e3cb207",
+  "workspace_roots": [
+    "/private/tmp/cuv/proj"
+  ],
+  "user_email": "dev@example.com",
+  "transcript_path": "/Users/dev/.cursor/projects/private-tmp-cuv-proj/agent-transcripts/5525c3e5-1685-4e2e-9222-77583808de5c/5525c3e5-1685-4e2e-9222-77583808de5c.jsonl"
+}

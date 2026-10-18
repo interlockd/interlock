@@ -2,12 +2,13 @@
 
 Interlock registers `preToolUse` and `postToolUse` (one generic pair for every tool type: Shell, Read, Write, Grep,
 Delete, Task, MCP:<tool>). The shell-specific `beforeShellExecution` / `afterShellExecution` shapes are accepted too.
-Built from the documentation; not yet captured from a running Cursor (see adapters/cursor/PAYLOADS.md).
+Measured 2026-10-18 on the Cursor CLI (cursor-agent 2026.10.16): see adapters/cursor/PAYLOADS.md.
 """
 
 from __future__ import annotations
 
 import getpass
+import json
 import socket
 from typing import Any
 
@@ -32,6 +33,11 @@ def normalize_cursor(payload: dict[str, Any], *, agent_id: str = "", adapter_ver
     result = None
     if kind == "post_action":
         raw = payload.get("tool_output", payload.get("output", payload.get("result_json")))
+        if isinstance(raw, str) and raw[:1] in "{[":   # measured: Cursor sends tool_output as a JSON string
+            try:
+                raw = json.loads(raw)
+            except ValueError:
+                pass
         text, evidence = _response_text(raw)
         if hook.lower() == "posttoolusefailure":
             evidence["failed"] = True

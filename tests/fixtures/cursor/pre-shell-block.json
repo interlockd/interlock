@@ -1,0 +1,21 @@
+{
+  "conversation_id": "ef784956-469c-4bb0-9d73-02eef7d9ded1",
+  "generation_id": "ef784956-469c-4bb0-9d73-02eef7d9ded1",
+  "model": "default",
+  "tool_name": "Shell",
+  "tool_input": {
+    "command": "git push --force origin main",
+    "cwd": "",
+    "timeout": 30000
+  },
+  "tool_use_id": "c89b8a0a-dac2-4ffd-a7ca-cc1c716839c0",
+  "cwd": "",
+  "session_id": "ef784956-469c-4bb0-9d73-02eef7d9ded1",
+  "hook_event_name": "preToolUse",
+  "cursor_version": "2026.10.16-e3cb207",
+  "workspace_roots": [
+    "/private/tmp/cuv/proj"
+  ],
+  "user_email": "dev@example.com",
+  "transcript_path": null
+}

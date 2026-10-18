@@ -45,7 +45,10 @@ def normalize_copilot(payload: dict[str, Any], *, event: str = "pre", agent_id: 
     args = p.get("toolArgs", p.get("tool_input"))
     result = None
     if kind == "post_action":
-        result, _ = _response_text(p.get("toolResult", p.get("tool_response", p.get("tool_output"))))
+        tr = p.get("toolResult", p.get("tool_response", p.get("tool_output")))
+        if isinstance(tr, dict) and "textResultForLlm" in tr:      # measured on Copilot CLI 1.0.98
+            tr = tr.get("textResultForLlm")
+        result, _ = _response_text(tr)
     return _event("copilot-cli", kind, name, args, session=p.get("sessionId", p.get("session_id")), cwd=p.get("cwd"),
                   version=adapter_version, agent_id=agent_id, result=result,
                   caps=Capabilities(ask=True, rewrite=True, withhold=True))     # postToolUse modifiedResult replaces
