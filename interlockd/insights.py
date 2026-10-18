@@ -203,18 +203,28 @@ def hook_integrity(home: Path) -> list[dict[str, str]]:
             text = f.read_text(errors="replace") if f.exists() else ""
         except OSError:
             text = ""
-        want = expected_shim(hk["harness"])
         if hk["marker"] not in text:
             row.update(problem="hook_removed", detail=f"Interlock hook missing from {f} (removed or edited)")
-        elif not shim.exists():
-            row.update(problem="shim_missing", detail=f"shim {shim} missing")
-        elif want is not None and (have := shim.read_text(errors="replace")) != want:
-            if _VERSION_LINE.sub("", have) == _VERSION_LINE.sub("", want):
-                row.update(problem="shim_outdated", detail=f"shim {shim} is from an earlier Interlock version")
-            else:
-                row.update(problem="shim_modified", detail=f"shim {shim} differs from the installed version (tampered or outdated)")
+        elif state := shim_state(shim, hk["harness"]):
+            row.update(problem=state, detail=SHIM_DETAIL[state].format(shim=shim))
         out.append(row)
     return out
+
+
+SHIM_DETAIL = {"shim_missing": "shim {shim} missing", "shim_outdated": "shim {shim} is from an earlier Interlock version",
+               "shim_modified": "shim {shim} differs from the packaged version beyond its version line (tampered)"}
+
+
+def shim_state(shim: Path, harness: str) -> str:
+    """"" when the shim is this version's, else shim_missing / shim_outdated (only the version line differs) /
+    shim_modified."""
+    if not shim.exists():
+        return "shim_missing"
+    want = expected_shim(harness)
+    have = shim.read_text(errors="replace")
+    if want is None or have == want:
+        return ""
+    return "shim_outdated" if _VERSION_LINE.sub("", have) == _VERSION_LINE.sub("", want) else "shim_modified"
 
 
 _VERSION_LINE = re.compile(r'^(?:const )?VERSION\s*=\s*"[^"]*";?$', re.MULTILINE)
@@ -319,18 +329,19 @@ def run_doctor(home: Path, listen: str, workspace_root: str | None = None) -> li
         hooked.add(h["harness"])
         fix = (f"run `interlock init --yes --harness {h['harness']}`" if h["problem"] == "hook_removed"
                else "run `interlock init --yes` to reinstall it")
-        out.append(Check(not h["problem"], f"hooks {h['harness']}", h["detail"], "" if not h["problem"] else fix))
+        out.append(Check(h["problem"] in ("", "shim_outdated"), f"hooks {h['harness']}", h["detail"], "" if not h["problem"] else fix,
+                         warn=h["problem"] == "shim_outdated"))   # the daemon refreshes those itself
     for d in detect():
         if not (d.present and d.target) or d.name in hooked:
             continue
         shim = _has_interlock_hook(d.target, home)
         if shim:
             hooked.add(d.name)
-            want = expected_shim(d.name)
-            same = Path(shim).exists() and (want is None or Path(shim).read_text() == want)
-            out.append(Check(same, f"hooks {d.name}", f"{d.target} (installed with `interlock install`)" if same else
-                             f"shim {shim} differs from the packaged version (tampered or outdated)",
-                             "" if same else f"run `interlock init --yes --harness {d.name}`"))
+            state = shim_state(Path(shim), d.name)
+            out.append(Check(state in ("", "shim_outdated"), f"hooks {d.name}",
+                             f"{d.target} (installed with `interlock install`)" if not state else SHIM_DETAIL[state].format(shim=shim),
+                             "" if not state else f"run `interlock init --yes --harness {d.name}` to reinstall it",
+                             warn=state == "shim_outdated"))
         else:
             out.append(Check(True, f"hooks {d.name}", f"{d.name} is installed but not protected",
                              f"run `interlock init --yes --harness {d.name}`", warn=True))
