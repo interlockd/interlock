@@ -1,5 +1,5 @@
-name: Interlock
-description: Audit MCP servers, agent configs, and committed agent instruction files (AGENTS.md, CLAUDE.md), and test your agent security policy, in CI.
+name: Interlock Agent Security
+description: Scan MCP servers, agent configs and AGENTS.md / CLAUDE.md for risks, and test your agent security policy in CI.
 author: interlockd
 branding: { icon: shield, color: blue }
 
