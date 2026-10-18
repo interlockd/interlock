@@ -48,7 +48,7 @@ def test_normalize_post_flattens_response_and_evidence():
 def test_normalize_mcp_and_codex_type():
     ev = normalize_claude_code(MCP, agent_type="codex")
     assert ev.adapter.name == "codex" and ev.context.mcp_server == {"name": "postgres", "source": "project"}
-    assert ev.capabilities.withhold is False
+    assert ev.capabilities.withhold is True          # Codex withholds via decision "block" (measured 0.162.1)
 
 
 def test_transcript_reader(tmp_path):
@@ -193,6 +193,9 @@ def test_live_captured_payloads(server, path):
     if path.stem.endswith("-block"):
         out = json.loads(body)["hookSpecificOutput"]
         assert out["permissionDecision"] == "deny" and "[interlock]" in out["permissionDecisionReason"]
+    elif path.stem.startswith("post-") and path.stem.endswith("-inject") and harness == "codex":
+        out = json.loads(body)                                         # Codex: decision "block" replaces the result
+        assert out["decision"] == "block" and "[interlock]" in out["reason"] and "evil.example" not in out["reason"]
     elif path.stem.startswith("post-") and path.stem.endswith("-inject"):
         out = json.loads(body)
         rep = out["hookSpecificOutput"]["updatedToolOutput"]
@@ -202,3 +205,11 @@ def test_live_captured_payloads(server, path):
         assert "[interlock]" in text and "evil.example" not in text
     else:
         assert body == ""
+
+
+def test_codex_withhold_uses_decision_block():
+    """Measured on Codex 0.162.1: only decision "block" replaces the result; updatedToolOutput is ignored."""
+    out = render_claude_code(_v(disposition="withhold", notice="[interlock] withheld"), kind="post_action", harness="codex")
+    assert out == {"decision": "block", "reason": "[interlock] withheld"}
+    claude = render_claude_code(_v(disposition="withhold", notice="[interlock] withheld"), kind="post_action")
+    assert "updatedToolOutput" in claude["hookSpecificOutput"]

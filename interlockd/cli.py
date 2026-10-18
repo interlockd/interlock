@@ -1133,6 +1133,8 @@ def cmd_init(args) -> int:
         print(f"  - add Interlock hooks for {d.name} in {d.target}")
     if svc:
         print(f"  - install and start a background service ({svc.backend}: {svc.unit_path})")
+    if args.mcp:
+        print(f"  - register the Interlock MCP server (advisory tools) with: {', '.join(d.name for d in chosen) or 'none'}")
     if not chosen:
         print("  - (no supported harness found; hooks can be added later with `interlock install`)")
     print()
@@ -1172,6 +1174,16 @@ def cmd_init(args) -> int:
         if d.note:
             print(f"            note: {d.note}")
 
+    if args.mcp:
+        from .onboard import register_mcp
+
+        for d in chosen:
+            entry = register_mcp(d.name)
+            if entry:
+                man.mcp = [m for m in man.mcp if m["harness"] != d.name] + [entry]
+                print(f"mcp         {d.name:<12} registered ({entry['via']})")
+            else:
+                print(f"mcp         {d.name:<12} not registered (run `interlock mcp` from its MCP settings)")
     if svc:
         svc.install()
         svc.start()
@@ -1223,6 +1235,12 @@ def cmd_uninstall(args) -> int:
             print(f"cleaned     {f}")
             if h.get("created") and f.exists() and json.loads(f.read_text() or "{}") == {}:
                 f.unlink()
+    if man and man.mcp:
+        from .onboard import unregister_mcp
+
+        for m in man.mcp:
+            if unregister_mcp(m):
+                print(f"mcp         removed from {m['harness']}")
     if man is None or man.service:   # init --no-service installed nothing to remove
         svc = _service(s)
         svc.uninstall()
@@ -1319,6 +1337,12 @@ def cmd_scan(args) -> int:
     return 1 if args.fail_on != "never" and worst <= SEVERITY_ORDER[args.fail_on] else 0
 
 
+def cmd_mcp(args) -> int:
+    from .mcp_server import InterlockMCP
+
+    return InterlockMCP(_settings(args)).serve()
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="interlock", description="Interlock: a pre/post-action interlock for coding agents")
     ap.add_argument("--home", help="Interlock home (default ~/.interlock or $INTERLOCK_HOME)")
@@ -1329,6 +1353,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--harness", help="comma-separated subset: claude-code,codex,cursor,gemini-cli,kiro (default: all detected)")
     p.add_argument("--enforce", action="store_true", help="start in enforce mode instead of shadow")
     p.add_argument("--no-service", action="store_true", help="don't install a background service")
+    p.add_argument("--mcp", action="store_true", help="also register the Interlock MCP server (advisory tools) with each agent")
     p.add_argument("--backend", choices=["launchd", "systemd", "process"], help="service backend (default: detected)")
     p.set_defaults(fn=cmd_init)
     p = sub.add_parser("uninstall", help="remove Interlock's hooks and background service")
@@ -1352,6 +1377,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--json", action="store_true"); p.add_argument("--all", action="store_true", help="include info findings")
     p.add_argument("--fail-on", choices=["high", "medium", "low", "never"], default="high", help="exit 1 at or above this severity")
     p.set_defaults(fn=cmd_scan)
+
+    p = sub.add_parser("mcp", help="run Interlock as an MCP server on stdio (advisory tools for your agent)")
+    p.set_defaults(fn=cmd_mcp)
 
     p = sub.add_parser("serve", help="run the daemon in the foreground"); p.add_argument("--listen"); p.add_argument("--mode", choices=["shadow", "enforce"])
     p.set_defaults(fn=cmd_serve)

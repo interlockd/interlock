@@ -50,7 +50,7 @@ interlock log -f                # watch decisions live
 - installs and starts a background service: launchd on macOS, a systemd user unit on Linux, or a detached process elsewhere (`--backend`), logging to `~/.interlock/interlockd.log`;
 - shows what the gate would decide for a few sample commands, without running them.
 
-Everything `init` changed is recorded in `~/.interlock/install-manifest.json`; `interlock uninstall` reverses exactly that (`--purge` also deletes `~/.interlock`). Options: `--harness claude-code,codex,kiro` for a subset, `--enforce` to start enforcing, `--no-service` to run the daemon yourself with `interlock serve`.
+Everything `init` changed is recorded in `~/.interlock/install-manifest.json`; `interlock uninstall` reverses exactly that (`--purge` also deletes `~/.interlock`). Options: `--harness claude-code,codex,cursor,gemini-cli,kiro` for a subset, `--enforce` to start enforcing, `--no-service` to run the daemon yourself with `interlock serve`, `--mcp` to also register the Interlock MCP server with each agent.
 
 Codex asks you to trust new hooks: open Codex and run `/hooks` once. Kiro reads hooks per workspace: run `interlock install --kiro --workspace-root <folder Kiro has open>` for other workspaces.
 
@@ -79,6 +79,7 @@ All keys are optional, and `init` writes none of them. Without `dynamodb_table` 
 | `interlock enforce \| shadow` | Switch mode in `~/.interlock/policy.yaml` (comments kept) and restart the daemon. Warns if a workspace policy sets its own mode. |
 | `interlock report [--days N] [--json]` | What the gate decided: what enforce would have blocked or asked in shadow mode, what was enforced, top rules, recent stops, latency. |
 | `interlock scan [--project P] [--json] [--all] [--fail-on high\|medium\|low\|never]` | Static audit of the MCP servers and agent settings on this machine (no daemon, no network, secret values never printed): unpinned `npx`/`uvx`/docker packages, plain-HTTP remotes, inline secrets, filesystem roots at `/` or `~`, inline shell servers, auto-approved tools, permission-bypass modes, agents Interlock is not protecting. Reads Claude Code, Claude Desktop, Codex, Cursor, VS Code, Kiro, Gemini CLI, and Windsurf configs. Exits 1 at or above `--fail-on` (default `high`), so it can gate CI. |
+| `interlock mcp` | Run Interlock as an MCP server on stdio, for use inside your agent: `check_action` (what would the gate decide?), `explain_decision`, `recent_decisions`, `scan_mcp_servers`, `interlock_status`, `suggest_rule_override` (returns YAML for you to apply). Read-only and advisory: it can make an agent more careful, never approve anything. `interlock init --mcp` registers it with each agent. |
 | `interlock doctor` | Check protection is on: daemon and version, token permissions, policy validity, hooks present in each agent, shims untampered, agents installed but unprotected, recent fail-open calls. Exits non-zero on a problem. |
 | `interlock serve [--mode shadow\|enforce] [--listen host:port]` | Run the daemon. `--mode` overrides the policy file. |
 | `interlock install --kiro [--workspace-root P] [--runtime sh\|node]` | Install the Kiro hooks. `sh` is the default shim (about 33 ms per call); `node` is about 108 ms. |
@@ -477,7 +478,7 @@ Enabling the judge means editing the workspace policy, and `persistence.agent_co
 ## 8. Known limitations
 
 - The optional judge is off by default. When enabled, some of its thresholds are still being calibrated; expect an `ask` on some actions you plainly requested (answering the confirmation resolves it).
-- Post-action withholding is verified on Claude Code; on Codex it has not been measured yet.
+- Post-action withholding is verified on Claude Code and Codex. Cursor can replace results only for MCP tools; other Cursor results get a warning.
 - Kiro has no native ask and ignores PostToolUse output, so on Kiro an `ask` renders as a block with a notice, and post-action warnings are record-only (`interlock log`, review index).
 - The Decider server binds loopback without auth and handles one request at a time. It is a dev-grade local dependency.
 - `interlock log` shows rule ids and probabilities, not prose rationales. The explainer is planned.

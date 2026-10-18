@@ -62,6 +62,7 @@ class Manifest:
     created_at: str = ""
     hooks: list[dict] = field(default_factory=list)      # {harness, file, marker, created}
     files: list[str] = field(default_factory=list)       # files init created outright (policy, shims)
+    mcp: list[dict] = field(default_factory=list)        # MCP server registrations (init --mcp)
     service: dict = field(default_factory=dict)          # {backend, label, unit_path}
 
     @classmethod
@@ -193,3 +194,88 @@ def confirm(prompt: str, assume_yes: bool) -> bool:
 
 def settings_for(home: Path | None) -> Settings:
     return Settings.load(home)
+
+
+# ------------------------------------------------------------------------------------------------ MCP registration
+
+MCP_NAME = "interlock"
+CODEX_BEGIN, CODEX_END = "# >>> interlock mcp (managed by `interlock init --mcp`)", "# <<< interlock mcp"
+
+
+def mcp_command() -> list[str]:
+    """How an agent launches the Interlock MCP server: this interpreter, so it works from a pipx/uv tool venv."""
+    return [sys.executable, "-m", "interlockd", "mcp"]
+
+
+def _json_mcp_file(harness: str) -> Path | None:
+    home = Path.home()
+    return {"cursor": home / ".cursor" / "mcp.json", "gemini-cli": home / ".gemini" / "settings.json",
+            "kiro": home / ".kiro" / "settings" / "mcp.json"}.get(harness)
+
+
+def register_mcp(harness: str, run=None) -> dict | None:
+    """Add the Interlock MCP server to one agent's config. Returns a manifest entry, or None if not supported/failed."""
+    import subprocess
+
+    run = run or (lambda cmd: subprocess.run(cmd, capture_output=True, text=True, check=False))
+    cmd = mcp_command()
+    if harness == "claude-code":
+        claude = shutil.which("claude")
+        if not claude:
+            return None
+        run([claude, "mcp", "remove", "--scope", "user", MCP_NAME])           # idempotent re-add
+        r = run([claude, "mcp", "add", "--scope", "user", MCP_NAME, "--", *cmd])
+        return {"harness": harness, "via": "claude-cli"} if r.returncode == 0 else None
+    if harness == "codex":
+        f = Path.home() / ".codex" / "config.toml"
+        text = f.read_text() if f.exists() else ""
+        text = _strip_codex_block(text)
+        args = ", ".join(json.dumps(a) for a in cmd[1:])
+        block = f'\n{CODEX_BEGIN}\n[mcp_servers.{MCP_NAME}]\ncommand = {json.dumps(cmd[0])}\nargs = [{args}]\n{CODEX_END}\n'
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(text.rstrip("\n") + "\n" + block if text.strip() else block.lstrip("\n"))
+        return {"harness": harness, "file": str(f), "via": "toml-block"}
+    f = _json_mcp_file(harness)
+    if f is None:
+        return None
+    data = json.loads(f.read_text()) if f.exists() and f.read_text().strip() else {}
+    created = not f.exists()
+    data.setdefault("mcpServers", {})[MCP_NAME] = {"command": cmd[0], "args": cmd[1:]}
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(json.dumps(data, indent=2) + "\n")
+    return {"harness": harness, "file": str(f), "via": "json", "created": created}
+
+
+def _strip_codex_block(text: str) -> str:
+    i = text.find(CODEX_BEGIN)
+    if i < 0:
+        return text
+    j = text.find(CODEX_END, i)
+    return text[:i].rstrip("\n") + ("\n" if text[:i].strip() else "") + (text[j + len(CODEX_END):].lstrip("\n") if j >= 0 else "")
+
+
+def unregister_mcp(entry: dict, run=None) -> bool:
+    import subprocess
+
+    run = run or (lambda cmd: subprocess.run(cmd, capture_output=True, text=True, check=False))
+    via = entry.get("via")
+    if via == "claude-cli":
+        claude = shutil.which("claude")
+        return bool(claude) and run([claude, "mcp", "remove", "--scope", "user", MCP_NAME]).returncode == 0
+    f = Path(entry.get("file", ""))
+    if not f.exists():
+        return False
+    if via == "toml-block":
+        f.write_text(_strip_codex_block(f.read_text()))
+        return True
+    data = json.loads(f.read_text() or "{}")
+    if MCP_NAME not in (data.get("mcpServers") or {}):
+        return False
+    del data["mcpServers"][MCP_NAME]
+    if not data["mcpServers"]:
+        del data["mcpServers"]
+    if entry.get("created") and not data:
+        f.unlink()
+    else:
+        f.write_text(json.dumps(data, indent=2) + "\n")
+    return True

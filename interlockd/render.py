@@ -41,7 +41,7 @@ def withheld_output(tool_response: Any, notice: str) -> Any:
     return notice
 
 
-def render_claude_code(v: Verdict, *, kind: str, tool_response: Any = None) -> dict[str, Any] | None:
+def render_claude_code(v: Verdict, *, kind: str, tool_response: Any = None, harness: str = "claude-code") -> dict[str, Any] | None:
     """Claude Code / Codex JSON for stdout. None means: print nothing, exit 0 (the harness decides on its own).
 
     Interlock never emits permissionDecision "allow": that would skip the harness's own permission prompt.
@@ -58,6 +58,9 @@ def render_claude_code(v: Verdict, *, kind: str, tool_response: Any = None) -> d
                                            "permissionDecisionReason": f"[interlock] {reason}"}}
         return None
     # post_action
+    if v.disposition == "withhold" and harness == "codex":
+        # Measured on Codex 0.162.1: updatedToolOutput is ignored; decision "block" replaces the result with the reason
+        return {"decision": "block", "reason": v.notice or WITHHELD}
     if v.disposition == "withhold":
         notice = v.notice or WITHHELD
         replacement = withheld_output(tool_response, notice)

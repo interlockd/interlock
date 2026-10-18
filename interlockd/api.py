@@ -228,7 +228,8 @@ class ApiServer:
                     payload = (body.get("payload") or {}) if u.path.startswith("/interlock/v1/hooks/") else {}
                     raw = payload.get("tool_output", payload.get("result_json")) if fmt == "cursor" else payload.get("tool_response")
                     renderer = {"claude-code": render_claude_code, "cursor": render_cursor, "gemini-cli": render_gemini_cli}[fmt]
-                    out = renderer(verdict, kind=event.kind, tool_response=raw)
+                    extra = {"harness": u.path.rsplit("/", 1)[-1]} if fmt == "claude-code" else {}
+                    out = renderer(verdict, kind=event.kind, tool_response=raw, **extra)
                     data = json.dumps(out, separators=(",", ":")).encode() if out else b""
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")

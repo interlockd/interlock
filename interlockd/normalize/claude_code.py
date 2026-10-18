@@ -17,7 +17,7 @@ from ..models import AdapterInfo, Capabilities, Context, Identity, InterlockEven
 from .kiro import workspace_name
 
 CLAUDE_CAPABILITIES = Capabilities(ask=True, rewrite=True, withhold=True)
-CODEX_CAPABILITIES = Capabilities(ask=True, rewrite=True, withhold=False)
+CODEX_CAPABILITIES = Capabilities(ask=True, rewrite=True, withhold=True)   # via decision "block" (measured)
 
 
 def _response_text(resp: Any) -> tuple[str, dict[str, Any]]:
