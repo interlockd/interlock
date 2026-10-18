@@ -114,3 +114,21 @@ def test_explain(tmp_path, monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "refused a Bash call from codex" in out and "rewrites shared history" in out and "overrides:" in out
     assert main(["explain", "01A"]) == 0 and main(["explain", "zzz"]) == 1
+
+
+def test_replay_shows_policy_changes(tmp_path, monkeypatch, capsys):
+    from interlockd.cli import main
+    from interlockd.store.spool import Spool
+
+    monkeypatch.setenv("INTERLOCK_HOME", str(tmp_path)); monkeypatch.setenv("HOME", str(tmp_path))
+    now = datetime.now(UTC).isoformat()
+    sp = Spool(tmp_path / "spool")
+    sp.append({"event_id": "a", "received_at": now, "kind": "pre_action", "tool_name": "Bash", "disposition": "allow",
+               "arguments": {"command": "git push --force origin main"}, "cwd": str(tmp_path)})
+    sp.append({"event_id": "b", "received_at": now, "kind": "pre_action", "tool_name": "Bash", "disposition": "allow",
+               "arguments": {"command": "ls"}, "cwd": str(tmp_path)})
+    assert main(["replay"]) == 0
+    out = capsys.readouterr().out
+    assert "replayed 2" in out and "1 decision(s) would change: 1 newly stopped" in out and "allow -> block" in out
+    (tmp_path / "policy.yaml").write_text("packs:\n  overrides:\n    git.force_push_protected_branch: { action: allow }\n")
+    assert main(["replay"]) == 0 and "no decision would change" in capsys.readouterr().out

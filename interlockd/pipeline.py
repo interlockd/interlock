@@ -232,7 +232,7 @@ class Daemon:
             "agent_workspace": event.identity.agent_workspace, "agent_user": event.identity.agent_user,
             "session_id": event.session_hint or "unknown", "turn_no": turn_no,
             "tool_call_id": event.tool_call.id, "tool_name": event.tool_call.name,
-            "arguments": event.tool_call.arguments,
+            "arguments": event.tool_call.arguments, "cwd": event.context.cwd,
             "normalized": {"action_class": verdict.action_class, **(normalized or {})},
             "tier": verdict.tier,
             "state": state, "state_sha256": hashlib.sha256(state_json.encode()).hexdigest(),

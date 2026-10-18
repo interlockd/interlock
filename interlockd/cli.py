@@ -1630,6 +1630,51 @@ def cmd_policy(args) -> int:
     return rc
 
 
+def cmd_replay(args) -> int:
+    """Re-decide recorded tool calls with the current policy (deterministic, scratch spool) and show what changes."""
+    import tempfile
+    from datetime import UTC, datetime, timedelta
+
+    from .models import AdapterInfo, Context, InterlockEvent, ToolCall
+    from .pipeline import Daemon as _Daemon
+    from .store.memory import MemoryRepository
+
+    s = _settings(args)
+    recs = list(Spool(s.spool_dir, fsync=False).iter_records(reverse=False)) if s.spool_dir.exists() else []
+    cutoff = (datetime.now(UTC) - timedelta(days=args.days)).isoformat()
+    recs = [r for r in recs if r.get("kind") == "pre_action" and r.get("received_at", "") >= cutoff[:19]
+            and not str(r.get("session_id") or "").startswith("interlock-selftest")]
+    pol = load_policy(s.workspace_roots[0] if s.workspace_roots else None, home=s.home)
+    pol.mode = "enforce"
+    stop = ("block", "ask")
+    changed, n = [], 0
+    with tempfile.TemporaryDirectory() as td:
+        d = _Daemon(s, spool=Spool(Path(td)), repo=MemoryRepository(), policy=pol)
+        d.backend = None                                  # deterministic: the judge is not re-asked
+        for r in recs[-args.limit:]:
+            ev = InterlockEvent(kind="pre_action", adapter=AdapterInfo(name="replay"), session_hint=f"replay-{n}",
+                                tool_call=ToolCall(name=r.get("tool_name") or "", arguments=r.get("arguments") or {}),
+                                context=Context(cwd=r.get("cwd")))
+            n += 1
+            v = d.decide(ev)
+            was, now = r.get("disposition"), v.disposition
+            if (was in stop) != (now in stop) or (args.all and was != now):
+                a = r.get("arguments") or {}
+                target = " ".join(str(a.get("command") or a.get("file_path") or a.get("path") or a.get("url") or "").split())[:80]
+                changed.append((r.get("received_at", "")[:16].replace("T", " "), was, now, r.get("tool_name"), target,
+                                sorted({f.rule for f in v.findings if f.rule})))
+    print(f"replayed {n} recorded call(s) from the last {args.days} days with the current policy {pol.source_paths or ['defaults']}")
+    print("(deterministic: rules and mandate re-evaluated; the judge is not re-asked and session state starts fresh)\n")
+    if not changed:
+        print("no decision would change")
+        return 0
+    newly = sum(1 for c in changed if c[2] in stop and c[1] not in stop)
+    print(f"{len(changed)} decision(s) would change: {newly} newly stopped, {len(changed) - newly} newly allowed\n")
+    for at, was, now, tool, target, rules in changed[:args.show]:
+        print(f"  {at}  {was:>5} -> {now:<5} {tool:<10} {target}  {', '.join(rules[:2])}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="interlock", description="Interlock: a pre/post-action interlock for coding agents")
     ap.add_argument("--home", help="Interlock home (default ~/.interlock or $INTERLOCK_HOME)")
@@ -1707,6 +1752,11 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("policy", help="check your policy for silent mistakes (unknown rule ids, weakened critical rules)")
     p.add_argument("action", choices=["lint"]); p.add_argument("--workspace")
     p.set_defaults(fn=cmd_policy)
+
+    p = sub.add_parser("replay", help="re-decide recorded calls with your current policy and show what would change")
+    p.add_argument("--days", type=int, default=30); p.add_argument("--limit", type=int, default=5000)
+    p.add_argument("--show", type=int, default=30); p.add_argument("--all", action="store_true", help="also show ask<->block changes")
+    p.set_defaults(fn=cmd_replay)
 
     p = sub.add_parser("serve", help="run the daemon in the foreground"); p.add_argument("--listen"); p.add_argument("--mode", choices=["shadow", "enforce"])
     p.set_defaults(fn=cmd_serve)
