@@ -46,7 +46,7 @@ interlock log -f                # watch decisions live
 `init` prints every change before making it and asks once (`--yes` skips the prompt). It:
 
 - creates `~/.interlock/` with a per-install bearer token (mode 0600; hooks send it and the daemon requires it, even on loopback), the fail-mode table the hooks use when the daemon is down, and a commented starter policy in **shadow** mode;
-- adds Interlock's hooks to every supported agent it finds: user-level for Claude Code (`~/.claude/settings.json`), Codex (`~/.codex/hooks.json`), Cursor (`~/.cursor/hooks.json`), and Gemini CLI (`~/.gemini/settings.json`), and the Kiro workspace you run it from (`.kiro/hooks/interlock.json`). Your existing hooks and settings are preserved;
+- adds Interlock's hooks to every supported agent it finds: user-level for Claude Code (`~/.claude/settings.json`), Codex (`~/.codex/hooks.json`), Cursor (`~/.cursor/hooks.json`), Gemini CLI (`~/.gemini/settings.json`), GitHub Copilot CLI (`~/.copilot/hooks/interlock.json`), Windsurf (`~/.codeium/windsurf/hooks.json`), and Antigravity CLI (`~/.gemini/config/hooks.json`), and the Kiro workspace you run it from (`.kiro/hooks/interlock.json`). Your existing hooks and settings are preserved;
 - installs and starts a background service: launchd on macOS, a systemd user unit on Linux, or a detached process elsewhere (`--backend`), logging to `~/.interlock/interlockd.log`;
 - shows what the gate would decide for a few sample commands, without running them.
 
@@ -79,7 +79,7 @@ Log: `~/.interlock/mcp-proxy.log`. Pins: `~/.interlock/mcp-pins.json`; after rev
 }
 ```
 
-All keys are optional, and `init` writes none of them. Without `dynamodb_table` the daemon runs spool-only (fully functional; records stay in `~/.interlock/spool/`). Other keys: `listen`, `mode`, `agent_id`, `kiro_sessions_dir`, `user_messages_n`, `pre_timeout_ms`, `post_timeout_ms`.
+`otlp_endpoint` (e.g. `http://localhost:4318/v1/traces`) and `otlp_headers` send one OpenTelemetry span per decision to your collector (OTLP/HTTP JSON, batched in the background; a session is one trace; attributes follow the GenAI conventions plus `interlock.*`; arguments and results are never exported). `interlock otel export --endpoint URL` backfills from the audit log. All keys are optional, and `init` writes none of them. Without `dynamodb_table` the daemon runs spool-only (fully functional; records stay in `~/.interlock/spool/`). Other keys: `listen`, `mode`, `agent_id`, `kiro_sessions_dir`, `user_messages_n`, `pre_timeout_ms`, `post_timeout_ms`.
 
 ### CLI
 
@@ -95,6 +95,10 @@ All keys are optional, and `init` writes none of them. Without `dynamodb_table` 
 | `interlock mcp-proxy --name N -- <cmd...>` | The gateway itself; normally written into MCP configs by `gateway wrap` rather than run by hand. |
 | `interlock mcp-pins [--accept SERVER [--tool T]]` | List pinned MCP tool definitions; `--accept` clears pins after you review a changed tool, so its new definition is pinned on next use. |
 | `interlock mcp` | Run Interlock as an MCP server on stdio, for use inside your agent: `check_action` (what would the gate decide?), `explain_decision`, `recent_decisions`, `scan_mcp_servers`, `interlock_status`, `suggest_rule_override` (returns YAML for you to apply). Read-only and advisory: it can make an agent more careful, never approve anything. `interlock init --mcp` registers it with each agent. |
+| `interlock audit verify [--expect-head H] \| head` | The local log is hash-chained (each record carries `prev_hash` and `hash`). `verify` walks it and names the first edited, removed, reordered, or inserted record; `head` prints the newest hash so you can keep it elsewhere and later detect truncation with `--expect-head`. `doctor` runs `verify` too. |
+| `interlock aibom [-o FILE] [--project P]` | A CycloneDX 1.6 AI bill of materials: agents found, models named in their configs, each MCP server (with a package URL for npm / PyPI / container launches and whether the version is pinned), remote MCP endpoints as services, and tool-definition hashes pinned by the gateway. Env and header values are never included, only names. |
+| `interlock explain [event_id]` | Explain one decision in plain language (default: the most recent stop): what was attempted, the verdict, each rule and why it matters, what the agent was told, and the override snippet if it was a false positive. Event ids come from `interlock log` / `report`; a prefix is enough. |
+| `interlock selftest [--harness H,...]` | Prove the gate works end to end with the policy you actually run: sends attack shapes (force-push, curl \| bash, .env upload, shell-rc persistence, key read) and a benign control through the live daemon in each installed agent's own hook format, and reports the verdicts. Nothing is executed; in shadow mode it shows what enforce would do. Events are tagged and kept out of `report` and `explain`. `init` runs it once after starting the service. |
 | `interlock doctor` | Check protection is on: daemon and version, token permissions, policy validity, hooks present in each agent, shims untampered, agents installed but unprotected, recent fail-open calls. Exits non-zero on a problem. |
 | `interlock serve [--mode shadow\|enforce] [--listen host:port]` | Run the daemon. `--mode` overrides the policy file. |
 | `interlock install --kiro [--workspace-root P] [--runtime sh\|node]` | Install the Kiro hooks. `sh` is the default shim (about 33 ms per call); `node` is about 108 ms. |

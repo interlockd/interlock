@@ -43,6 +43,8 @@ class Settings:
     dynamodb_table: str | None = None
     aws_region: str | None = None
     aws_profile: str | None = None
+    otlp_endpoint: str | None = None               # e.g. http://localhost:4318/v1/traces (OpenTelemetry export)
+    otlp_headers: dict[str, str] = field(default_factory=dict)
 
     @property
     def token_path(self) -> Path:

@@ -28,7 +28,7 @@ What the gate decides (enforce mode, nothing executed):
 | Claude Code | ✅ verified live: blocks before execution, withholds injected tool results |
 | Codex CLI | ✅ verified live: blocks before execution, withholds injected tool results |
 | Kiro (IDE) | ✅ verified live |
-| Cursor, Gemini CLI | built from their documented hooks; live verification in progress |
+| Cursor, Gemini CLI, GitHub Copilot CLI, Windsurf, Antigravity CLI | built from their documented hooks; live verification in progress |
 | Any MCP client | ✅ the MCP gateway (`interlock gateway wrap`) gates every stdio MCP server, hooks or not |
 | Windsurf, Cline, GitHub Copilot, and more | hook adapters planned |
 
@@ -54,6 +54,8 @@ Start in **shadow** mode (decide and record, never block), check `interlock repo
 | `interlock mcp` | An MCP server your agent can ask: "would this be blocked?", "why was that stopped?" (`interlock init --mcp` registers it) |
 | `interlock scan` | Audit your MCP servers and agent settings: unpinned packages, inline secrets, broad filesystem access, auto-approved tools |
 | `interlock doctor` | Check protection is actually on (hooks present, shims untampered, daemon up) |
+| `interlock selftest` | Send attack shapes through the live daemon in each agent's hook format and see what your policy stops |
+| `interlock explain` | Why was that stopped? Plain language, with the override snippet |
 | `interlock enforce` / `interlock shadow` | Switch mode |
 | `interlock test` | Unit-test your policy against the rule corpus (CI-friendly) |
 

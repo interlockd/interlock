@@ -25,5 +25,6 @@ def test_append_iter_and_drain(tmp_path):
 def test_append_is_one_line_and_durable(tmp_path):
     sp = Spool(tmp_path / "spool")
     sp.append({"event_id": "X", "received_at": "2026-10-08T00:00:00Z", "text": "multi\nline"})
-    lines = (tmp_path / "spool" / "2026-10-08.jsonl").read_text().splitlines()
+    (seg,) = sp.segments()                       # one segment per write day, whatever the record's received_at
+    lines = seg.read_text().splitlines()
     assert len(lines) == 1 and '"text":"multi\\nline"' in lines[0]

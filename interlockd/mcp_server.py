@@ -90,9 +90,12 @@ class InterlockMCP:
         from .store.spool import Spool
 
         sd = self.settings.spool_dir
-        return list(Spool(sd, fsync=False).iter_records(limit=limit)) if sd.exists() else []
+        recs = Spool(sd, fsync=False).iter_records(limit=limit) if sd.exists() else []
+        return [r for r in recs if not str(r.get("session_id") or "").startswith("interlock-selftest")]
 
     def explain_decision(self, event_id: str | None = None) -> dict:
+        from .det.describe import why
+
         recs = self._records()
         rec = next((r for r in recs if r.get("event_id") == event_id), None) if event_id else \
             next((r for r in recs if r.get("disposition") in ("block", "ask", "warn", "withhold")), None)
@@ -102,7 +105,8 @@ class InterlockMCP:
                 "tool": rec.get("tool_name"), "kind": rec.get("kind"), "decision": rec.get("disposition"),
                 "mode": rec.get("mode"), "reason": rec.get("reason"),
                 "rules": [{"rule": f.get("rule"), "category": f.get("category"), "severity": f.get("severity"),
-                           "detector": f.get("detector"), "score": f.get("score")} for f in rec.get("findings") or []],
+                           "detector": f.get("detector"), "score": f.get("score"), "why": why(f.get("rule"))}
+                          for f in rec.get("findings") or []],
                 "what_to_do": ("Pursue the user's goal another legitimate way, or ask the user. If this is a false "
                                "positive, the user can override the rule (see suggest_rule_override).")}
 

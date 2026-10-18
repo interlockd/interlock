@@ -36,9 +36,17 @@ from .normalize.claude_code import normalize_claude_code
 from .normalize.cursor import normalize_cursor
 from .normalize.gemini_cli import normalize_gemini_cli
 from .normalize.kiro import normalize_kiro
+from .normalize.more import normalize_antigravity, normalize_copilot, normalize_windsurf
 from .ogr import PROTOCOLS, evaluate_guard_event
 from .pipeline import Daemon
-from .render import render_claude_code, render_cursor, render_gemini_cli, render_text
+from .render import (
+    render_antigravity,
+    render_claude_code,
+    render_copilot,
+    render_cursor,
+    render_gemini_cli,
+    render_text,
+)
 
 log = logging.getLogger("interlockd.api")
 
@@ -191,7 +199,8 @@ class ApiServer:
                     self._send(200, verdict)
                     return
                 if u.path not in ("/interlock/v1/decide", "/interlock/v1/hooks/kiro", "/interlock/v1/hooks/claude-code",
-                                  "/interlock/v1/hooks/codex", "/interlock/v1/hooks/cursor", "/interlock/v1/hooks/gemini-cli"):
+                                  "/interlock/v1/hooks/codex", "/interlock/v1/hooks/cursor", "/interlock/v1/hooks/gemini-cli",
+                                  "/interlock/v1/hooks/copilot-cli", "/interlock/v1/hooks/windsurf", "/interlock/v1/hooks/antigravity"):
                     self._send(404, {"error": "not found"})
                     return
                 if not self._authed():
@@ -207,6 +216,11 @@ class ApiServer:
                     elif u.path == "/interlock/v1/hooks/cursor":
                         event = normalize_cursor(body.get("payload") or {}, agent_id=server.daemon.settings.agent_id,
                                                  adapter_version=str(shim.get("version", "0")))
+                    elif u.path in ("/interlock/v1/hooks/copilot-cli", "/interlock/v1/hooks/windsurf", "/interlock/v1/hooks/antigravity"):
+                        fn = {"copilot-cli": normalize_copilot, "windsurf": normalize_windsurf,
+                              "antigravity": normalize_antigravity}[u.path.rsplit("/", 1)[-1]]
+                        event = fn(body.get("payload") or {}, event=str(shim.get("event") or "pre"),
+                                   agent_id=server.daemon.settings.agent_id, adapter_version=str(shim.get("version", "0")))
                     elif u.path == "/interlock/v1/hooks/gemini-cli":
                         event = normalize_gemini_cli(body.get("payload") or {}, agent_id=server.daemon.settings.agent_id,
                                                      adapter_version=str(shim.get("version", "0")))
@@ -238,12 +252,13 @@ class ApiServer:
                     self.end_headers()
                     self.wfile.write(data)
                     return
-                if fmt in ("claude-code", "cursor", "gemini-cli"):
+                if fmt in ("claude-code", "cursor", "gemini-cli", "copilot-cli", "antigravity"):
                     # The exact JSON the hook prints on stdout; an empty body means "no opinion" (the shim decides
                     # how to express that to its harness).
                     payload = (body.get("payload") or {}) if u.path.startswith("/interlock/v1/hooks/") else {}
                     raw = payload.get("tool_output", payload.get("result_json")) if fmt == "cursor" else payload.get("tool_response")
-                    renderer = {"claude-code": render_claude_code, "cursor": render_cursor, "gemini-cli": render_gemini_cli}[fmt]
+                    renderer = {"claude-code": render_claude_code, "cursor": render_cursor, "gemini-cli": render_gemini_cli,
+                                "copilot-cli": render_copilot, "antigravity": render_antigravity}[fmt]
                     extra = {"harness": u.path.rsplit("/", 1)[-1]} if fmt == "claude-code" else {}
                     out = renderer(verdict, kind=event.kind, tool_response=raw, **extra)
                     data = json.dumps(out, separators=(",", ":")).encode() if out else b""

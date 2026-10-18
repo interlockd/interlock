@@ -56,6 +56,8 @@ def build_report(records: list[dict], *, days: int = 7, now: datetime | None = N
     cutoff = now - timedelta(days=days)
     r = Report(days=days)
     for rec in records:
+        if str(rec.get("session_id") or "").startswith("interlock-selftest"):
+            continue
         try:
             ts = datetime.fromisoformat(rec.get("received_at", ""))
         except ValueError:
@@ -168,7 +170,7 @@ def _health(listen: str) -> dict[str, Any] | None:
 def expected_shim(harness: str) -> str | None:
     from .cli import CLAUDE_SHIM_SRC, HOOK_SHIMS
 
-    if harness in ("claude-code", "codex", "cursor", "gemini-cli"):
+    if harness in ("claude-code", "codex", "cursor", "gemini-cli", "copilot-cli", "windsurf", "antigravity"):
         return CLAUDE_SHIM_SRC.read_text().replace("__HARNESS__", harness)
     if harness == "kiro":
         return HOOK_SHIMS["sh"].read_text()
@@ -180,7 +182,7 @@ def _has_interlock_hook(f: Path, home: Path) -> str | None:
     if not f.exists():
         return None
     text = f.read_text(errors="replace")
-    for name in ("claude-code", "codex", "cursor", "gemini-cli", "kiro"):
+    for name in ("claude-code", "codex", "cursor", "gemini-cli", "copilot-cli", "windsurf", "antigravity", "kiro"):
         shim_dir = str(home / "adapters" / name)
         if shim_dir in text:
             for shim in (home / "adapters" / name).glob("interlock-hook.*"):
@@ -258,6 +260,14 @@ def run_doctor(home: Path, listen: str, workspace_root: str | None = None) -> li
     if not hooked:
         out.append(Check(False, "hooks", "no Interlock hooks found in any harness", "run `interlock init`"))
 
+    sd = home / "spool"
+    if sd.exists():
+        from .store.spool import Spool
+
+        r = Spool(sd, fsync=False).verify()
+        out.append(Check(r["ok"], "audit log", f"intact: {r['records']} chained records" + (f" (+{r['legacy']} legacy)" if r["legacy"] else "")
+                         if r["ok"] else f"BROKEN at {r['break']['segment']} line {r['break']['line']}: {r['break']['reason']}",
+                         "" if r["ok"] else "investigate: the local audit log was modified outside Interlock"))
     try:
         from . import gateway
 

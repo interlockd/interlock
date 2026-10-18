@@ -111,3 +111,32 @@ def render_gemini_cli(v: Verdict, *, kind: str, tool_response: Any = None) -> di
     if v.disposition == "warn":
         return {"hookSpecificOutput": {"hookEventName": "AfterTool", "additionalContext": _warning(v)}}
     return None
+
+
+def render_copilot(v: Verdict, *, kind: str, tool_response: Any = None) -> dict[str, Any] | None:
+    """GitHub Copilot CLI hooks (docs.github.com/en/copilot/reference/hooks-configuration)."""
+    if v.mode == "shadow":
+        return None
+    if kind == "pre_action":
+        if v.disposition == "block":
+            return {"permissionDecision": "deny", "permissionDecisionReason": v.notice or v.reason or "refused by Interlock policy"}
+        if v.disposition == "ask":
+            return {"permissionDecision": "ask", "permissionDecisionReason": f"[interlock] {v.reason or 'needs confirmation'}"}
+        return None
+    if v.disposition == "withhold":
+        return {"modifiedResult": {"resultType": "success", "textResultForLlm": v.notice or WITHHELD}}
+    if v.disposition == "warn":
+        return {"additionalContext": _warning(v)}
+    return None
+
+
+def render_antigravity(v: Verdict, *, kind: str, tool_response: Any = None) -> dict[str, Any] | None:
+    """Antigravity CLI hooks (antigravity.google/docs/hooks). PostToolUse can't change the result; None = no opinion
+    (the shim prints the required {"decision": "allow"})."""
+    if v.mode == "shadow" or kind != "pre_action":
+        return None
+    if v.disposition == "block":
+        return {"decision": "deny", "reason": v.notice or v.reason or "refused by Interlock policy"}
+    if v.disposition == "ask":
+        return {"decision": "ask", "reason": f"[interlock] {v.reason or 'needs confirmation'}"}
+    return None

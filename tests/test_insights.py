@@ -93,3 +93,24 @@ def test_report_includes_gateway_interventions(tmp_path):
     assert r.gateway_pinned == 4 and len(r.gateway_hidden) == 2 and r.gateway_hidden[1].endswith("(shadow)")
     text = format_report(r)
     assert "MCP gateway: 4 tool definitions pinned" in text and "fake/add" in text
+
+
+def test_every_rule_has_a_description():
+    from interlockd.det import RULES, flow, mcp, packs  # noqa: F401  register every rule
+    from interlockd.det.describe import WHY
+
+    assert set(RULES) <= set(WHY), sorted(set(RULES) - set(WHY))
+
+
+def test_explain(tmp_path, monkeypatch, capsys):
+    from interlockd.cli import main
+    from interlockd.store.spool import Spool
+
+    monkeypatch.setenv("INTERLOCK_HOME", str(tmp_path))
+    Spool(tmp_path / "spool").append({"event_id": "01ABC", "received_at": "2026-10-17T10:00:00Z", "tool_name": "Bash",
+        "agent_type": "codex", "disposition": "block", "mode": "enforce", "arguments": {"command": "git push --force origin main"},
+        "notice": "[interlock] refused", "findings": [{"rule": "git.force_push_protected_branch", "severity": "critical"}]})
+    assert main(["explain"]) == 0
+    out = capsys.readouterr().out
+    assert "refused a Bash call from codex" in out and "rewrites shared history" in out and "overrides:" in out
+    assert main(["explain", "01A"]) == 0 and main(["explain", "zzz"]) == 1

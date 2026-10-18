@@ -53,6 +53,11 @@ class Daemon:
         self.mode = self.policy.mode if policy is not None else settings.mode
         self.backend = None      # DecisionBackend, set by the CLI from policy.judge.primary
         self.probe = None        # BedrockGuardrailsProbe, set by the CLI when policy.judge.probe.enabled
+        self.otel = None
+        if settings.otlp_endpoint:
+            from .otel import Exporter
+
+            self.otel = Exporter(settings.otlp_endpoint, settings.otlp_headers)
         self.local_probe = None  # LocalInjectionProbe: no AWS, no network; on unless policy.judge.probe.local.enabled is false
         lp = self.policy.judge.probe.local
         if lp.enabled:
@@ -351,6 +356,8 @@ class Daemon:
                            answers=answers_rows, guardrails=guard_scores)
         rec["timing_ms"] = dict(verdict.timing_ms)  # the stored copy must not alias the live verdict
         self.spool.append(rec)
+        if self.otel is not None:
+            self.otel.submit(rec)
         if self.repo is not None and not hasattr(self.repo, "put_events"):
             # a local repository (memory) is written inline; remote repositories are fed by the drainer
             self.repo.put_event(rec)

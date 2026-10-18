@@ -19,7 +19,7 @@ from pathlib import Path
 from .config import Settings
 
 MANIFEST = "install-manifest.json"
-HARNESSES = ("claude-code", "codex", "cursor", "gemini-cli", "kiro")
+HARNESSES = ("claude-code", "codex", "cursor", "gemini-cli", "copilot-cli", "windsurf", "antigravity", "kiro")
 
 STARTER_POLICY = """\
 # Interlock user policy, written by `interlock init`. Layered: built-in defaults <- this file <- <workspace>/.interlock/policy.yaml
@@ -107,6 +107,18 @@ def detect(cwd: Path | None = None) -> list[Detected]:
     out.append(Detected("gemini-cli", bool(gemini or (home / ".gemini").is_dir()), why=gemini or str(home / ".gemini"),
                         target=home / ".gemini" / "settings.json",
                         note="built from Gemini CLI's docs, not yet verified live; hooksConfig.enabled must not be false"))
+    built = "built from its documented hooks, not yet verified live"
+    copilot = shutil.which("copilot")
+    out.append(Detected("copilot-cli", bool(copilot or (home / ".copilot").is_dir()), why=copilot or str(home / ".copilot"),
+                        target=home / ".copilot" / "hooks" / "interlock.json", note=f"GitHub Copilot CLI: {built}"))
+    windsurf = shutil.which("windsurf")
+    out.append(Detected("windsurf", bool(windsurf or (home / ".codeium" / "windsurf").is_dir()),
+                        why=windsurf or str(home / ".codeium" / "windsurf"), target=home / ".codeium" / "windsurf" / "hooks.json",
+                        note=f"Windsurf (Cascade hooks): {built}; results can't be withheld"))
+    agy = shutil.which("antigravity") or shutil.which("agy")
+    out.append(Detected("antigravity", bool(agy or (home / ".gemini" / "antigravity-cli").is_dir()),
+                        why=agy or str(home / ".gemini" / "antigravity-cli"), target=home / ".gemini" / "config" / "hooks.json",
+                        note=f"Antigravity CLI: {built}; results can't be withheld"))
     kiro = shutil.which("kiro") or shutil.which("kiro-cli")
     root = find_kiro_root(cwd)
     out.append(Detected("kiro", bool(root), why=str(root) if root else (kiro or ""),

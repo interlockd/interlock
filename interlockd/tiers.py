@@ -28,7 +28,7 @@ IN_WORKSPACE_WRITE_TOOLS = {
 }
 DESTRUCTIVE_TOOLS = {"delete_file", "remove_file", "Delete"}
 SHELL_TOOLS = {"execute_bash", "shell", "Bash", "PowerShell", "control_bash_process", "exec_command",
-               "Shell", "run_shell_command"}                                 # Cursor, Gemini CLI
+               "Shell", "run_shell_command", "bash", "powershell"}          # Cursor, Gemini CLI, Copilot CLI
 NETWORK_TOOLS = {"web_fetch", "remote_web_search", "WebFetch", "WebSearch", "web_search", "google_web_search"}
 SUBAGENT_TOOLS = {"invoke_sub_agent", "Task", "spawn_agent"}
 

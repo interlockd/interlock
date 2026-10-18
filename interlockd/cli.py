@@ -99,6 +99,8 @@ def cmd_serve(args) -> int:
         print("shutting down")
         if drainer:
             drainer.stop()
+        if daemon.otel is not None:
+            daemon.otel.stop()
         if decider_proc:
             decider_proc.stop()
         threading.Thread(target=server.shutdown, name="interlock-shutdown", daemon=True).start()
@@ -281,6 +283,43 @@ def _write_gemini_hooks(s: Settings, target: Path) -> Path:
     merged = _merge_hook_groups(existing, {"BeforeTool": [{"matcher": ".*", "hooks": [dict(handler)]}],
                                            "AfterTool": [{"matcher": ".*", "hooks": [dict(handler)]}]}, str(shim))
     target.write_text(json.dumps(merged, indent=2) + "\n")
+    return shim
+
+
+def _write_copilot_hooks(s: Settings, target: Path) -> Path:
+    """~/.copilot/hooks/interlock.json (docs.github.com/en/copilot/reference/hooks-configuration)."""
+    shim = _install_shared_shim(s, "copilot-cli")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    existing = json.loads(target.read_text()) if target.exists() and target.read_text().strip() else {}
+    merged = _merge_hook_groups(existing, {
+        "preToolUse": [{"type": "command", "bash": f"sh {shim} pre", "timeoutSec": 5}],
+        "postToolUse": [{"type": "command", "bash": f"sh {shim} post", "timeoutSec": 5}]}, str(shim))
+    merged.setdefault("version", 1)
+    target.write_text(json.dumps(merged, indent=2) + "\n")
+    return shim
+
+
+def _write_windsurf_hooks(s: Settings, target: Path) -> Path:
+    """~/.codeium/windsurf/hooks.json (docs.devin.ai/desktop/cascade/hooks): block by exit 2."""
+    shim = _install_shared_shim(s, "windsurf")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    existing = json.loads(target.read_text()) if target.exists() and target.read_text().strip() else {}
+    entry = {"command": f"sh {shim} pre", "show_output": True}
+    merged = _merge_hook_groups(existing, {e: [dict(entry)] for e in
+                                           ("pre_run_command", "pre_mcp_tool_use", "pre_read_code", "pre_write_code")}, str(shim))
+    target.write_text(json.dumps(merged, indent=2) + "\n")
+    return shim
+
+
+def _write_antigravity_hooks(s: Settings, target: Path) -> Path:
+    """~/.gemini/config/hooks.json (antigravity.google/docs/hooks): a named top-level group, `interlock`."""
+    shim = _install_shared_shim(s, "antigravity")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    data = json.loads(target.read_text()) if target.exists() and target.read_text().strip() else {}
+    data["interlock"] = {"enabled": True,
+                         "PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": f"sh {shim} pre", "timeout": 10}]}],
+                         "PostToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": f"sh {shim} post", "timeout": 10}]}]}
+    target.write_text(json.dumps(data, indent=2) + "\n")
     return shim
 
 
@@ -1168,6 +1207,12 @@ def cmd_init(args) -> int:
             shim = _write_cursor_hooks(s, d.target)
         elif d.name == "gemini-cli":
             shim = _write_gemini_hooks(s, d.target)
+        elif d.name == "copilot-cli":
+            shim = _write_copilot_hooks(s, d.target)
+        elif d.name == "windsurf":
+            shim = _write_windsurf_hooks(s, d.target)
+        elif d.name == "antigravity":
+            shim = _write_antigravity_hooks(s, d.target)
         else:
             shim, _ = _write_kiro_hooks(s, d.target.parents[2])
         man.hooks = [h for h in man.hooks if h["file"] != str(d.target)] + [
@@ -1202,6 +1247,13 @@ def cmd_init(args) -> int:
         print(f"service     {svc.backend:<12} {'running' if ok else 'NOT answering'} on http://{s.listen}")
         if not ok:
             print(f"            check {svc.log_path}, then run `interlock doctor`")
+        elif chosen:
+            from .selftest import run as selftest
+
+            rows, _ = selftest(s.listen, s.token_path.read_text().strip(), [chosen[0].name])
+            good = sum(r.ok for r in rows)
+            print(f"selftest    {chosen[0].name:<12} {good}/{len(rows)} checks passed through the live daemon"
+                  + ("" if good == len(rows) else "  (run `interlock selftest` for details)"))
     man.save(s.home)
 
     print("\nWhat the gate decides (enforce mode, nothing executed):")
@@ -1241,6 +1293,16 @@ def cmd_uninstall(args) -> int:
             if f.exists() and h["marker"] in f.read_text():
                 f.unlink()
                 print(f"removed     {f}")
+        elif h["harness"] == "antigravity":
+            if f.exists() and f.read_text().strip():
+                data = json.loads(f.read_text())
+                if "interlock" in data:
+                    data.pop("interlock")
+                    if data or not h.get("created"):
+                        f.write_text(json.dumps(data, indent=2) + "\n")
+                    else:
+                        f.unlink()
+                    print(f"cleaned     {f}")
         elif remove_hook_groups(f, h["marker"]):
             print(f"cleaned     {f}")
             if h.get("created") and f.exists() and json.loads(f.read_text() or "{}") == {}:
@@ -1415,6 +1477,126 @@ def cmd_gateway(args) -> int:
     return 0
 
 
+def cmd_audit(args) -> int:
+    s = _settings(args)
+    sp = Spool(s.spool_dir, fsync=False)
+    if args.action == "head":
+        print(sp.head())
+        return 0
+    r = sp.verify()
+    if args.json:
+        print(json.dumps(r, indent=2))
+    elif r["ok"]:
+        print(f"audit log intact: {r['records']} chained records" + (f" (+{r['legacy']} written before chaining)" if r["legacy"] else "")
+              + f"; head {r['head'][:16]}")
+        if args.expect_head and not r["head"].startswith(args.expect_head):
+            print(f"but the head is not the anchored one ({args.expect_head[:16]}): newest records were removed or rewritten")
+            return 1
+    else:
+        b = r["break"]
+        print(f"audit log BROKEN at {b['segment']} line {b['line']}: {b['reason']} ({r['records']} records verified before it)")
+    return 0 if r["ok"] else 1
+
+
+def cmd_aibom(args) -> int:
+    from .aibom import build, summary, to_json
+
+    s = _settings(args)
+    bom = build(Path.home(), s.home, Path(args.project or Path.cwd()).expanduser().resolve())
+    if args.output:
+        Path(args.output).write_text(to_json(bom))
+        print(summary(bom)); print(f"written: {args.output}")
+    else:
+        print(to_json(bom))
+    return 0
+
+
+def cmd_otel(args) -> int:
+    from .otel import send, span_from_record
+
+    s = _settings(args)
+    endpoint = args.endpoint or s.otlp_endpoint
+    if not endpoint:
+        print("no endpoint: pass --endpoint or set otlp_endpoint in ~/.interlock/config.json", file=sys.stderr)
+        return 2
+    recs = list(Spool(s.spool_dir, fsync=False).iter_records(limit=args.limit, reverse=False)) if s.spool_dir.exists() else []
+    spans = [span_from_record(r) for r in recs]
+    for i in range(0, len(spans), 200):
+        send(endpoint, spans[i:i + 200], s.otlp_headers)
+    print(f"exported {len(spans)} span(s) to {endpoint}")
+    return 0
+
+
+def cmd_explain(args) -> int:
+    from .det.describe import why
+
+    s = _settings(args)
+    recs = [r for r in (Spool(s.spool_dir, fsync=False).iter_records(limit=5000) if s.spool_dir.exists() else [])
+            if not str(r.get("session_id") or "").startswith("interlock-selftest")]
+    stops = ("block", "ask", "warn", "withhold")
+    rec = next((r for r in recs if r.get("event_id", "").startswith(args.event_id)), None) if args.event_id else \
+        next((r for r in recs if r.get("disposition") in stops), None)
+    if not rec:
+        print("no such decision" if args.event_id else "no recent blocks, asks, warnings, or withholds (see `interlock log`)")
+        return 1
+    a = rec.get("arguments") or {}
+    target = a.get("command") or a.get("file_path") or a.get("path") or a.get("url") or ""
+    verb = {"block": "refused", "ask": "asked for confirmation on", "warn": "warned about", "withhold": "withheld the result of",
+            "allow": "allowed", "pass": "passed"}.get(rec.get("disposition", ""), rec.get("disposition"))
+    shadow = rec.get("mode") == "shadow"
+    print(f"{rec.get('received_at', '')[:19].replace('T', ' ')}  event {rec.get('event_id')}")
+    print(f"\nInterlock {'would have ' if shadow and verb != 'allowed' else ''}{verb} a {rec.get('tool_name')} call from "
+          f"{rec.get('agent_type') or rec.get('adapter')}" + (" (shadow mode: nothing was enforced)" if shadow else "") + ":")
+    if target:
+        print(f"  {str(target)[:300]}")
+    rules = [f for f in rec.get("findings") or [] if f.get("rule")]
+    if rules:
+        print("\nWhy:")
+        for f in rules:
+            print(f"  - {f['rule']} ({f.get('severity')}): {why(f['rule']) or f.get('category', '')}")
+            if f.get("subject") and f["subject"] not in str(target):
+                print(f"      {str(f['subject'])[:200]}")
+    elif rec.get("reason"):
+        print(f"\nWhy: {rec['reason']}")
+    if rec.get("notice"):
+        print(f"\nWhat the agent was told:\n  {rec['notice'][:600]}")
+    if rules and rec.get("disposition") in stops:
+        r0 = next((f["rule"] for f in rules if not f["rule"].startswith("budget.")), rules[0]["rule"])
+        weaker = "ask" if rec.get("disposition") == "block" else "allow"
+        print("\nIf this was wrong, override the rule in ~/.interlock/policy.yaml (or <repo>/.interlock/policy.yaml):")
+        print(f"  packs:\n    overrides:\n      {r0}: {{ action: {weaker} }}     # or enabled: false")
+        print("then `interlock restart`. Add the command to your corpus so it stays fixed.")
+    return 0
+
+
+def cmd_selftest(args) -> int:
+    from .onboard import Manifest, detect
+    from .selftest import run
+
+    s = _settings(args)
+    try:
+        token = s.token_path.read_text().strip()
+    except OSError:
+        print("no token: run `interlock init` first"); return 1
+    man = Manifest.load(s.home)
+    harnesses = args.harness.split(",") if args.harness else (
+        [h["harness"] for h in man.hooks] if man and man.hooks else [d.name for d in detect() if d.present]) or ["claude-code"]
+    rows, mode = run(s.listen, token, harnesses)
+    if not rows:
+        print(mode); return 1
+    print(f"Interlock selftest against the live daemon (mode: {mode}); nothing is executed\n")
+    for r in rows:
+        mark = "✓" if r.ok else "✗"
+        want = {"stop": "should stop", "pass": "should pass", "any": "either"}[r.expected]
+        print(f"  {mark} {r.harness:<12} {r.label:<32} {r.decision:<6} ({want}) {', '.join(r.rules[:2])}")
+    bad = [r for r in rows if not r.ok]
+    print()
+    if mode == "shadow":
+        print("Shadow mode: these are the decisions enforce mode would apply; nothing is blocked yet (`interlock enforce`).")
+    print("All checks passed." if not bad else f"{len(bad)} check(s) failed: your policy lets these through (see `interlock explain`).")
+    return 1 if bad else 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="interlock", description="Interlock: a pre/post-action interlock for coding agents")
     ap.add_argument("--home", help="Interlock home (default ~/.interlock or $INTERLOCK_HOME)")
@@ -1422,7 +1604,7 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("init", help="one-command setup: detect harnesses, install hooks, start the daemon")
     p.add_argument("-y", "--yes", action="store_true", help="don't ask for confirmation")
-    p.add_argument("--harness", help="comma-separated subset: claude-code,codex,cursor,gemini-cli,kiro (default: all detected)")
+    p.add_argument("--harness", help="comma-separated subset: claude-code,codex,cursor,gemini-cli,copilot-cli,windsurf,antigravity,kiro (default: all detected)")
     p.add_argument("--enforce", action="store_true", help="start in enforce mode instead of shadow")
     p.add_argument("--no-service", action="store_true", help="don't install a background service")
     p.add_argument("--mcp", action="store_true", help="also register the Interlock MCP server (advisory tools) with each agent")
@@ -1467,6 +1649,27 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("gateway", help="route your MCP servers through the Interlock MCP gateway (wrap | unwrap | status)")
     p.add_argument("action", choices=["wrap", "unwrap", "status"]); p.add_argument("--project")
     p.add_argument("--dry-run", action="store_true"); p.set_defaults(fn=cmd_gateway)
+
+    p = sub.add_parser("audit", help="verify the hash-chained local audit log, or print its head for anchoring")
+    p.add_argument("action", choices=["verify", "head"]); p.add_argument("--json", action="store_true")
+    p.add_argument("--expect-head", help="fail if the current head is not this anchored hash (detects truncation)")
+    p.set_defaults(fn=cmd_audit)
+
+    p = sub.add_parser("aibom", help="CycloneDX AI bill of materials: agents, models, MCP servers (packages, pins)")
+    p.add_argument("--project"); p.add_argument("-o", "--output", help="write to this file and print a summary")
+    p.set_defaults(fn=cmd_aibom)
+
+    p = sub.add_parser("otel", help="export recorded decisions as OpenTelemetry spans (OTLP/HTTP JSON)")
+    p.add_argument("action", choices=["export"]); p.add_argument("--endpoint"); p.add_argument("--limit", type=int, default=10000)
+    p.set_defaults(fn=cmd_otel)
+
+    p = sub.add_parser("explain", help="explain a decision in plain language (default: the most recent stop)")
+    p.add_argument("event_id", nargs="?", help="event id or prefix (from `interlock log` or `report`)")
+    p.set_defaults(fn=cmd_explain)
+
+    p = sub.add_parser("selftest", help="send attack shapes through the live daemon in each agent's hook format")
+    p.add_argument("--harness", help="comma-separated subset (default: the agents init installed)")
+    p.set_defaults(fn=cmd_selftest)
 
     p = sub.add_parser("serve", help="run the daemon in the foreground"); p.add_argument("--listen"); p.add_argument("--mode", choices=["shadow", "enforce"])
     p.set_defaults(fn=cmd_serve)
