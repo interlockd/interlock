@@ -8,7 +8,7 @@ jobs:
   interlock:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: interlockd/interlock@v0.1.0
         with: { fail-on: high }
       - uses: github/codeql-action/upload-sarif@v3

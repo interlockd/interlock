@@ -16,8 +16,8 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
       - name: Tag matches package version
         run: |
           tag="${GITHUB_REF_NAME#v}"
@@ -35,7 +35,7 @@ jobs:
         run: |
           uv venv /tmp/w --python 3.12 && uv pip install --python /tmp/w/bin/python dist/*.whl
           cd /tmp && /tmp/w/bin/interlock --help >/dev/null && /tmp/w/bin/interlock test
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with: { name: dist, path: dist/ }
 
   publish:
@@ -46,7 +46,7 @@ jobs:
       id-token: write          # trusted publishing
       contents: write          # GitHub release
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with: { name: dist, path: dist/ }
       - uses: pypa/gh-action-pypi-publish@release/v1
       - name: GitHub release

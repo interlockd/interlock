@@ -80,7 +80,7 @@ The full threat model is in [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md). Latenc
 ## In CI
 
 ```yaml
-- uses: actions/checkout@v4
+- uses: actions/checkout@v7
 - uses: interlockd/interlock@v0.1.0        # scan MCP/agent configs, test .interlock/policy.yaml
   with: { fail-on: high }
 - uses: github/codeql-action/upload-sarif@v3
