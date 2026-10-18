@@ -63,7 +63,10 @@ def test_forwarding_and_refusals(client, upstream):
         s, status = _connect(pport, "localhost", upstream)               # HTTPS-style tunnel to an allowed host
         assert status.startswith("HTTP/1.1 200")
         s.sendall(f"GET / HTTP/1.1\r\nHost: localhost:{upstream}\r\nConnection: close\r\n\r\n".encode())
-        assert b"hello" in s.recv(4096); s.close()
+        data = b""
+        while chunk := s.recv(4096):                                     # the body may arrive in a later packet
+            data += chunk
+        assert b"hello" in data; s.close()
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({"http": f"http://127.0.0.1:{pport}"}))
         assert opener.open(f"http://localhost:{upstream}/x", timeout=10).read() == b"hello"   # plain HTTP
         s, status = _connect(pport, "169.254.169.254", 80)               # cloud metadata endpoint: refused, never dialled
