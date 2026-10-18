@@ -62,6 +62,12 @@ _SIGNALS: list[tuple[str, float, re.Pattern[str]]] = [
         r"\b(?:the\s+)?user\s+(?:has\s+)?(?:already\s+)?(?:approved|authorized|confirmed|consented|agreed)\b"
         r"|\b(?:pre-?approved|authorized by (?:the )?(?:admin|security|owner))\b", re.IGNORECASE)),
     ("url", 0.2, re.compile(r"https?://[^\s)>\"']+", re.IGNORECASE)),
+    ("email_address", 0.2, re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")),
+    # MCP tool poisoning: <IMPORTANT>-style blocks and instructions about how to use OTHER tools (shadowing)
+    ("instruction_tag", 0.35, re.compile(r"<\s*/?\s*(?:important|system|instructions?|secret|hidden)\s*>", re.IGNORECASE)),
+    ("tool_shadowing", 0.35, re.compile(
+        r"\b(?:when|whenever|before|after)\b[^.\n]{0,40}\b(?:using|calling|invoking|you use|you call)\b[^.\n]{0,40}\btool\b"
+        r"|\b(?:always|must)\b[^.\n]{0,40}\b(?:bcc|cc|forward|redirect|send a copy)\b", re.IGNORECASE)),
     ("secret_target", 0.25, re.compile(
         r"(?:\.env\b|\.ssh\b|id_rsa|id_ed25519|\.aws/credentials|authorized_keys|\bapi[_ -]?keys?\b|\bsecrets?\b|"
         r"\btokens?\b|\bpasswords?\b|\bcredentials?\b)", re.IGNORECASE)),
@@ -96,8 +102,11 @@ def _decode_tags(text: str) -> str:
     return "".join(chr(ord(c) - 0xE0000) for c in _TAG_CHARS.findall(text))
 
 
-def heuristic_score(text: str) -> tuple[float, list[str]]:
-    """Score `text` for instructions aimed at an agent. Returns (score in [0,1], matched signal names)."""
+def heuristic_score(text: str, *, assume_addressed: bool = False) -> tuple[float, list[str]]:
+    """Score `text` for instructions aimed at an agent. Returns (score in [0,1], matched signal names).
+
+    `assume_addressed` is for text whose only reader is the model, such as an MCP tool description: there an
+    imperative needs no "note to the assistant" framing to be an instruction."""
     norm = unicodedata.normalize("NFKC", text)
     hidden = _decode_tags(norm)
     visible = _ZERO_WIDTH.sub("", _TAG_CHARS.sub("", norm))
@@ -113,7 +122,7 @@ def heuristic_score(text: str) -> tuple[float, list[str]]:
             total += weight
     # A directive needs an addressee or an override/role framing to count as injection rather than prose.
     framed = {"override", "role_marker", "addressed", "new_instructions"} & set(hits)
-    if not framed:
+    if not framed and not assume_addressed:
         total *= 0.3
     # Hidden carriers: directives inside HTML comments or invisible characters are a strong tell.
     comments = " ".join(_HTML_COMMENT.findall(visible))

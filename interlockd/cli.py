@@ -1133,6 +1133,8 @@ def cmd_init(args) -> int:
         print(f"  - add Interlock hooks for {d.name} in {d.target}")
     if svc:
         print(f"  - install and start a background service ({svc.backend}: {svc.unit_path})")
+    if args.gateway:
+        print("  - route your stdio MCP servers through the Interlock MCP gateway (`interlock gateway unwrap` undoes it)")
     if args.mcp:
         print(f"  - register the Interlock MCP server (advisory tools) with: {', '.join(d.name for d in chosen) or 'none'}")
     if not chosen:
@@ -1184,6 +1186,14 @@ def cmd_init(args) -> int:
                 print(f"mcp         {d.name:<12} registered ({entry['via']})")
             else:
                 print(f"mcp         {d.name:<12} not registered (run `interlock mcp` from its MCP settings)")
+    if args.gateway:
+        from . import gateway
+
+        rows = gateway.apply(True)
+        man.gateway = True
+        n = sum(c.action == "wrapped" for c in rows)
+        print(f"gateway     {n} MCP server(s) routed through the gateway; {sum(c.action == 'skipped' for c in rows)} not covered"
+              " (see `interlock gateway status`)")
     if svc:
         svc.install()
         svc.start()
@@ -1235,6 +1245,11 @@ def cmd_uninstall(args) -> int:
             print(f"cleaned     {f}")
             if h.get("created") and f.exists() and json.loads(f.read_text() or "{}") == {}:
                 f.unlink()
+    if man and man.gateway:
+        from . import gateway
+
+        n = sum(c.action == "unwrapped" for c in gateway.apply(False))
+        print(f"gateway     {n} MCP server(s) restored to their original commands")
     if man and man.mcp:
         from .onboard import unregister_mcp
 
@@ -1343,6 +1358,55 @@ def cmd_mcp(args) -> int:
     return InterlockMCP(_settings(args)).serve()
 
 
+def cmd_mcp_proxy(args) -> int:
+    from .mcp_proxy import Proxy
+
+    command = [c for c in args.command if c != "--"]
+    if not command:
+        print("usage: interlock mcp-proxy --name NAME -- <server command...>", file=sys.stderr)
+        return 2
+    return Proxy(args.name, command, _settings(args)).run()
+
+
+def cmd_mcp_pins(args) -> int:
+    from .mcp_proxy import Pins
+
+    s = _settings(args)
+    pins = Pins(s.home / "mcp-pins.json")
+    if args.accept:
+        n = pins.accept(args.accept, args.tool)
+        print(f"cleared {n} pin(s) for {args.accept}{'/' + args.tool if args.tool else ''}; current definitions are pinned on next use")
+        return 0
+    data = pins.load()
+    if not data:
+        print("no pinned MCP tools yet (they are pinned the first time a server is used through `interlock mcp-proxy`)")
+    for server, tools in sorted(data.items()):
+        print(server)
+        for tool, meta in sorted(tools.items()):
+            print(f"  {tool:<32} {meta['sha256'][:12]}  pinned {meta['pinned_at']}")
+    return 0
+
+
+def cmd_gateway(args) -> int:
+    from . import gateway
+
+    project = Path(args.project).expanduser().resolve() if args.project else None
+    if args.action == "status":
+        rows = gateway.status(project=project)
+        label = {"wrapped": "protected", "unwrapped": "NOT protected", "skipped": "not covered"}
+    else:
+        rows = gateway.apply(args.action == "wrap", project=project, dry_run=args.dry_run)
+        label = {"wrapped": "wrapped" + (" (dry run)" if args.dry_run else ""),
+                 "unwrapped": "unwrapped" + (" (dry run)" if args.dry_run else ""), "skipped": "skipped"}
+    if not rows:
+        print("no MCP servers found")
+    for c in rows:
+        print(f"  {label[c.action]:<20} {c.agent:<14} {c.server:<24} {c.detail}")
+    if args.action == "wrap" and any(c.action == "wrapped" for c in rows) and not args.dry_run:
+        print("\nRestart your agents so they relaunch the servers through the gateway. Undo: interlock gateway unwrap")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="interlock", description="Interlock: a pre/post-action interlock for coding agents")
     ap.add_argument("--home", help="Interlock home (default ~/.interlock or $INTERLOCK_HOME)")
@@ -1354,6 +1418,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--enforce", action="store_true", help="start in enforce mode instead of shadow")
     p.add_argument("--no-service", action="store_true", help="don't install a background service")
     p.add_argument("--mcp", action="store_true", help="also register the Interlock MCP server (advisory tools) with each agent")
+    p.add_argument("--gateway", action="store_true", help="also route your stdio MCP servers through the Interlock MCP gateway")
     p.add_argument("--backend", choices=["launchd", "systemd", "process"], help="service backend (default: detected)")
     p.set_defaults(fn=cmd_init)
     p = sub.add_parser("uninstall", help="remove Interlock's hooks and background service")
@@ -1380,6 +1445,19 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("mcp", help="run Interlock as an MCP server on stdio (advisory tools for your agent)")
     p.set_defaults(fn=cmd_mcp)
+
+    p = sub.add_parser("mcp-proxy", help="MCP gateway for a stdio server: run it in place of the server command")
+    p.add_argument("--name", required=True, help="server name (used for pins, logs, and tool names)")
+    p.add_argument("--bare", action="store_true", help=argparse.SUPPRESS)   # set by `gateway wrap`; only used by unwrap
+    p.add_argument("command", nargs=argparse.REMAINDER, help="-- <real server command and args>")
+    p.set_defaults(fn=cmd_mcp_proxy)
+    p = sub.add_parser("mcp-pins", help="list pinned MCP tool definitions, or --accept a server's changed definitions")
+    p.add_argument("--accept", metavar="SERVER"); p.add_argument("--tool")
+    p.set_defaults(fn=cmd_mcp_pins)
+
+    p = sub.add_parser("gateway", help="route your MCP servers through the Interlock MCP gateway (wrap | unwrap | status)")
+    p.add_argument("action", choices=["wrap", "unwrap", "status"]); p.add_argument("--project")
+    p.add_argument("--dry-run", action="store_true"); p.set_defaults(fn=cmd_gateway)
 
     p = sub.add_parser("serve", help="run the daemon in the foreground"); p.add_argument("--listen"); p.add_argument("--mode", choices=["shadow", "enforce"])
     p.set_defaults(fn=cmd_serve)

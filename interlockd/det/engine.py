@@ -71,8 +71,12 @@ def evaluate(event: InterlockEvent, policy: Policy, tier: TierResult) -> DetResu
         res.harm = harm_for(res)
         return res
 
-    if name in SHELL_TOOLS:
-        cmd = _command_of(event)
+    # MCP tools that run commands (terminal / shell servers) get the same shell analysis as the agent's own shell;
+    # only explicit command keys count, since a generic `args` list means something else on most MCP tools
+    mcp_cmd = next((args[k] for k in ("command", "cmd", "script", "commandLine")
+                    if isinstance(args.get(k), str) and args[k].strip()), None) if tier.action_class == "mcp" else None
+    if name in SHELL_TOOLS or mcp_cmd is not None:
+        cmd = _command_of(event) if mcp_cmd is None else mcp_cmd
         if cmd is not None:
             parsed = parse(cmd)
             res.normalized["commands"] = parsed.commands()[:20]

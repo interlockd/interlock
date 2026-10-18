@@ -63,6 +63,7 @@ class Manifest:
     hooks: list[dict] = field(default_factory=list)      # {harness, file, marker, created}
     files: list[str] = field(default_factory=list)       # files init created outright (policy, shims)
     mcp: list[dict] = field(default_factory=list)        # MCP server registrations (init --mcp)
+    gateway: bool = False                                # init --gateway wrapped MCP servers through mcp-proxy
     service: dict = field(default_factory=dict)          # {backend, label, unit_path}
 
     @classmethod

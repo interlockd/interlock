@@ -50,11 +50,23 @@ interlock log -f                # watch decisions live
 - installs and starts a background service: launchd on macOS, a systemd user unit on Linux, or a detached process elsewhere (`--backend`), logging to `~/.interlock/interlockd.log`;
 - shows what the gate would decide for a few sample commands, without running them.
 
-Everything `init` changed is recorded in `~/.interlock/install-manifest.json`; `interlock uninstall` reverses exactly that (`--purge` also deletes `~/.interlock`). Options: `--harness claude-code,codex,cursor,gemini-cli,kiro` for a subset, `--enforce` to start enforcing, `--no-service` to run the daemon yourself with `interlock serve`, `--mcp` to also register the Interlock MCP server with each agent.
+Everything `init` changed is recorded in `~/.interlock/install-manifest.json`; `interlock uninstall` reverses exactly that (`--purge` also deletes `~/.interlock`). Options: `--harness claude-code,codex,cursor,gemini-cli,kiro` for a subset, `--enforce` to start enforcing, `--no-service` to run the daemon yourself with `interlock serve`, `--mcp` to also register the Interlock MCP server with each agent, `--gateway` to route MCP servers through the MCP gateway (§2.1).
 
 Codex asks you to trust new hooks: open Codex and run `/hooks` once. Kiro reads hooks per workspace: run `interlock install --kiro --workspace-root <folder Kiro has open>` for other workspaces.
 
 From a source checkout instead: `uv venv --python 3.12 && uv pip install -e ".[dev]" --python .venv/bin/python`, then use `.venv/bin/interlock`.
+
+### 2.1 The MCP gateway
+
+Hooks see the tool calls an agent makes; the MCP gateway sees every MCP server the agent talks to, whether or not the agent has hooks. `interlock gateway wrap` (or `interlock init --gateway`) changes each stdio server entry so the agent launches `interlock mcp-proxy` in its place, which starts the real server and relays its messages:
+
+| What passes through | What the gateway does |
+|---|---|
+| The server's tool list | Pins each tool's definition (name, description, input schema) the first time it is seen. A tool whose definition later changes (a "rug pull") or whose description tries to instruct the model ("tool poisoning": `<IMPORTANT>` blocks, instructions to read secrets, rules about other tools) is hidden in enforce mode and logged in shadow mode |
+| Each tool call | Decided by the daemon like any other tool call, including the shell rules for terminal-style tools that take a `command`. A refusal is returned to the agent as a tool error and never reaches the server |
+| Each tool result | Run through the injection probe; a withhold replaces the content with a notice |
+
+Log: `~/.interlock/mcp-proxy.log`. Pins: `~/.interlock/mcp-pins.json`; after reviewing a legitimate change, `interlock mcp-pins --accept <server>`. Covered automatically: Claude Code (user scope via `claude mcp`, project `.mcp.json`), Claude Desktop, Cursor, VS Code, Kiro, Gemini CLI, Windsurf. Not yet: Codex (edit `~/.codex/config.toml` by hand: `command = "<python>"`, `args = ["-m", "interlockd", "mcp-proxy", "--name", "<server>", "--", <original command and args>]`) and remote HTTP servers (HTTP gateway planned). Restart your agents after wrapping.
 
 ### Daemon configuration (`~/.interlock/config.json`)
 
@@ -79,6 +91,9 @@ All keys are optional, and `init` writes none of them. Without `dynamodb_table` 
 | `interlock enforce \| shadow` | Switch mode in `~/.interlock/policy.yaml` (comments kept) and restart the daemon. Warns if a workspace policy sets its own mode. |
 | `interlock report [--days N] [--json]` | What the gate decided: what enforce would have blocked or asked in shadow mode, what was enforced, top rules, recent stops, latency. |
 | `interlock scan [--project P] [--json] [--all] [--fail-on high\|medium\|low\|never]` | Static audit of the MCP servers and agent settings on this machine (no daemon, no network, secret values never printed): unpinned `npx`/`uvx`/docker packages, plain-HTTP remotes, inline secrets, filesystem roots at `/` or `~`, inline shell servers, auto-approved tools, permission-bypass modes, agents Interlock is not protecting. Reads Claude Code, Claude Desktop, Codex, Cursor, VS Code, Kiro, Gemini CLI, and Windsurf configs. Exits 1 at or above `--fail-on` (default `high`), so it can gate CI. |
+| `interlock gateway wrap \| unwrap \| status [--dry-run]` | Route every stdio MCP server through the MCP gateway (§2.1). `wrap` rewrites each server's launch command (original kept after `--`, a `.interlock-backup` copy written once); `unwrap` restores them exactly; `status` shows which servers are protected. `interlock init --gateway` wraps, `uninstall` unwraps. |
+| `interlock mcp-proxy --name N -- <cmd...>` | The gateway itself; normally written into MCP configs by `gateway wrap` rather than run by hand. |
+| `interlock mcp-pins [--accept SERVER [--tool T]]` | List pinned MCP tool definitions; `--accept` clears pins after you review a changed tool, so its new definition is pinned on next use. |
 | `interlock mcp` | Run Interlock as an MCP server on stdio, for use inside your agent: `check_action` (what would the gate decide?), `explain_decision`, `recent_decisions`, `scan_mcp_servers`, `interlock_status`, `suggest_rule_override` (returns YAML for you to apply). Read-only and advisory: it can make an agent more careful, never approve anything. `interlock init --mcp` registers it with each agent. |
 | `interlock doctor` | Check protection is on: daemon and version, token permissions, policy validity, hooks present in each agent, shims untampered, agents installed but unprotected, recent fail-open calls. Exits non-zero on a problem. |
 | `interlock serve [--mode shadow\|enforce] [--listen host:port]` | Run the daemon. `--mode` overrides the policy file. |
