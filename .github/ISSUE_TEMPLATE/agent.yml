@@ -1,0 +1,20 @@
+name: Support for an agent or framework
+description: Ask for (or offer to build) an adapter for a coding agent, agent framework, or MCP client
+labels: [adapter]
+body:
+  - type: input
+    id: agent
+    attributes: { label: Agent or framework, placeholder: "name, version, link" }
+    validations: { required: true }
+  - type: textarea
+    id: hooks
+    attributes:
+      label: Its extension point
+      description: Hooks, plugins, callbacks, or MCP only? Links to the docs help. Adapters are verified against payloads captured from the real tool, see docs/ADAPTERS.md.
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Can you help?
+      options:
+        - label: I can capture real hook payloads from this tool
+        - label: I'd like to build the adapter

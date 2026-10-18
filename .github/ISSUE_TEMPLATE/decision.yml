@@ -1,0 +1,34 @@
+name: Wrong decision (false positive or false negative)
+description: Interlock blocked or asked about something safe, or allowed something it should have stopped
+labels: [decision]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If an attack got through a **default** rule, please report it privately instead (Security → Report a vulnerability).
+        `interlock explain` shows the rule ids and reason for the latest stop. Remove secrets before pasting.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options: ["False positive: a safe action was blocked or asked", "False negative: a harmful action was allowed"]
+    validations: { required: true }
+  - type: textarea
+    id: action
+    attributes: { label: "The tool call (command or tool and arguments)", render: text }
+    validations: { required: true }
+  - type: textarea
+    id: explain
+    attributes: { label: "Output of `interlock explain` (for a stop)", render: text }
+  - type: input
+    id: expected
+    attributes: { label: "What should the decision be? (allow / ask / block)" }
+    validations: { required: true }
+  - type: textarea
+    id: why
+    attributes: { label: "Why? Context that makes it safe, or harmful" }
+  - type: dropdown
+    id: policy
+    attributes:
+      label: Policy
+      options: ["Default policy", "Custom policy (paste the relevant part below)"]
