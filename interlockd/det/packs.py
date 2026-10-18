@@ -363,6 +363,10 @@ def _persistence_path_check(path: str, res: DetResult, policy: Policy, roots: li
         res.add(policy, R_PERSIST_CI, path=where, subject=p)
     if p.startswith(("/etc/sudoers", "/etc/passwd", "/etc/shadow", "/etc/pam.d", "/Library/LaunchDaemons", "/etc/hosts")):
         res.add(policy, R_PERSIST_SUDOERS, path=where, subject=p)
+    if not protected_agent:                      # instruction files read back into every future session
+        from .memory import check_instruction_write
+
+        check_instruction_write(p, None, res, policy, where)
 
 
 def check_persistence_shell(parsed: Parsed, res: DetResult, policy: Policy, cwd: str | None) -> None:

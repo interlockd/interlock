@@ -4,7 +4,8 @@ Reads every MCP config the supported agents use (user level and the current proj
 reports risky shapes: unpinned packages fetched at launch, plain-HTTP remotes, secrets written inline, filesystem roots
 at / or ~, inline shell commands, auto-approved tools, privileged containers. It also flags agent settings that turn
 off the agent's own guard rails, and agents that Interlock is not protecting. Nothing is executed and no server is
-contacted; secret values are never printed. Tool-description checks need the live tool list (MCP gateway, M5).
+contacted; secret values are never printed. Committed agent instruction files (AGENTS.md, CLAUDE.md, ...) are checked
+for injected instructions and hidden Unicode. Tool-description checks need the live tool list (the MCP gateway).
 """
 
 from __future__ import annotations
@@ -280,6 +281,39 @@ def check_agent_settings(home: Path, project: Path) -> list[Finding]:
     return f
 
 
+def check_instruction_files(project: Path, *, max_files: int = 200) -> list[Finding]:
+    """Committed agent instruction files are read into every session that opens the repo: flag ones that carry
+    instructions aimed at the agent (a poisoned AGENTS.md arriving in a pull request) or invisible Unicode."""
+    from .det.memory import INSTRUCTION_DIRS, INSTRUCTION_NAMES
+    from .judges.local_probe import heuristic_score
+
+    out: list[Finding] = []
+    seen = 0
+    for path in sorted(project.rglob("*")):
+        if seen >= max_files:
+            break
+        rel = "/" + str(path.relative_to(project))
+        if any(part in (".git", "node_modules", ".venv", "venv", "dist", "build") for part in path.parts):
+            continue
+        if not path.is_file() or not (path.name in INSTRUCTION_NAMES or any(d in rel for d in INSTRUCTION_DIRS)):
+            continue
+        seen += 1
+        try:
+            text = path.read_text(errors="replace")[:200_000]
+        except OSError:
+            continue
+        score, hits = heuristic_score(text)
+        if "unicode_tags" in hits or "zero_width" in hits:
+            out.append(Finding("high", "agent.hidden_text_in_instructions", "repo", str(path),
+                               "contains invisible Unicode (tag or zero-width characters) that the model reads but reviewers don't",
+                               "remove the hidden characters and review where they came from", str(path)))
+        elif score >= 0.6:
+            out.append(Finding("high", "agent.poisoned_instructions", "repo", str(path),
+                               f"reads as injected instructions to the agent ({score:.2f}: {', '.join(hits[:4])})",
+                               "review this file: every agent session in the repo loads it", str(path)))
+    return out
+
+
 def check_protection(home: Path, interlock_home: Path, project: Path) -> list[Finding]:
     from .insights import _has_interlock_hook
     from .onboard import detect
@@ -312,6 +346,7 @@ def run_scan(home: Path, interlock_home: Path, project: Path) -> ScanResult:
     findings = [x for s in servers for x in check_server(s, home)]
     findings += check_agent_settings(home, project)
     findings += check_protection(home, interlock_home, project)
+    findings += check_instruction_files(project)
     findings.sort(key=lambda x: (SEVERITY_ORDER[x.severity], x.agent, x.subject))
     return ScanResult(servers, sources, findings)
 
@@ -338,7 +373,7 @@ def format_scan(r: ScanResult, *, show_info: bool = False) -> str:
                 lines.append(f"  {'':<4}  {'':<14} {'':<22} → {f.fix}")
     counts = {k: sum(1 for f in r.findings if f.severity == k) for k in ("high", "medium", "low")}
     tail = (f"{counts['high']} high, {counts['medium']} medium, {counts['low']} low. "
-            "Static checks only; tool descriptions are checked live by the MCP gateway (coming).")
+            "Static checks only; tool descriptions are checked live when servers run through the MCP gateway (`interlock gateway wrap`).")
     lines += ["", tail]
     return "\n".join(lines)
 

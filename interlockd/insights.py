@@ -225,6 +225,13 @@ def run_doctor(home: Path, listen: str, workspace_root: str | None = None) -> li
         if h and h.get("mode") != pol.mode:
             out.append(Check(True, "mode", f"daemon runs {h.get('mode')} but the policy on disk says {pol.mode}",
                              "run `interlock restart` to apply the policy", warn=True))
+        from .policy_lint import lint
+
+        issues = lint(pol)
+        errs = [i for i in issues if i.level == "error"]
+        if errs:
+            out.append(Check(False, "policy lint", f"{errs[0].where}: {errs[0].message}" + (f" (+{len(errs) - 1} more)" if len(errs) > 1 else ""),
+                             "interlock policy lint"))
         if live == "shadow":
             out.append(Check(True, "mode", "shadow: decisions are recorded, nothing is blocked", "`interlock enforce` when ready", warn=True))
     except Exception as e:  # noqa: BLE001

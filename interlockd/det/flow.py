@@ -22,6 +22,7 @@ from . import DetResult, rule
 from .mcp import split_mcp_name
 
 R_FLOW_TRIFECTA = rule("flow.lethal_trifecta", "security.data_exfiltration", "high", "ask")
+R_FLOW_MEMORY = rule("flow.memory_poisoning", "security.memory_poisoning", "high", "ask")
 PRIVATE_RULES = {"secrets.read_sensitive_path", "secrets.dump_environment", "secrets.literal_in_result"}
 
 
@@ -83,6 +84,14 @@ def check(event: InterlockEvent, res: DetResult, session: dict[str, Any], policy
     if not policy.flow.enabled or event.kind != "pre_action":
         return
     legs = _legs(session)
+    if legs["untrusted"]:
+        from .memory import is_memory_tool
+
+        target = _mcp_target(event)
+        mem = res.normalized.get("memory_write") or (f"MCP {target}" if is_memory_tool(target) else None)
+        if mem:
+            res.add(policy, R_FLOW_MEMORY, path="session",
+                    subject=f"this session took in untrusted content ({legs['untrusted'][-1]}); now writing persistent agent memory: {mem}")
     if not (legs["private"] and legs["untrusted"]):
         return
     sink = is_sink(event, res, policy)

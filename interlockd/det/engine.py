@@ -112,7 +112,15 @@ def evaluate(event: InterlockEvent, policy: Policy, tier: TierResult) -> DetResu
             if name in IN_WORKSPACE_WRITE_TOOLS and is_protected(p, roots, policy.trust.protected_paths) and not res.findings:
                 from .packs import R_PERSIST_AGENT_CONFIG
                 res.add(policy, R_PERSIST_AGENT_CONFIG, path=where, subject=p)
-        content = args.get("content") or args.get("new_str") or args.get("file_text") or ""
+        content = args.get("content") or args.get("new_str") or args.get("file_text") or args.get("new_string") or ""
+        if res.normalized.get("memory_write") and isinstance(content, str) and content:
+            from ..judges.local_probe import heuristic_score
+            from .memory import R_MEMORY_INJECTED
+
+            score, hits = heuristic_score(content)
+            if score >= 0.6:
+                res.add(policy, R_MEMORY_INJECTED, path="tool_call.arguments.content",
+                        subject=f"{res.normalized['memory_write']}: content reads as instructions to the agent ({score:.2f}: {', '.join(hits[:4])})")
         if "secrets" in enabled and isinstance(content, str) and content:
             from .packs import R_SECRET_IN_ARGS
             scan_secrets(content, "tool_call.arguments.content", res, policy, R_SECRET_IN_ARGS)

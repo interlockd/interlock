@@ -1609,6 +1609,21 @@ def cmd_selftest(args) -> int:
     return 1 if bad else 0
 
 
+def cmd_policy(args) -> int:
+    from .policy_lint import format_issues, lint
+
+    s = _settings(args)
+    try:
+        pol = load_policy(args.workspace or (s.workspace_roots[0] if s.workspace_roots else None), home=s.home)
+    except Exception as e:  # noqa: BLE001
+        print(f"policy does not load: {e}")
+        return 1
+    print(f"policy: {pol.source_paths or ['built-in defaults']}")
+    text, rc = format_issues(lint(pol))
+    print(text)
+    return rc
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="interlock", description="Interlock: a pre/post-action interlock for coding agents")
     ap.add_argument("--home", help="Interlock home (default ~/.interlock or $INTERLOCK_HOME)")
@@ -1682,6 +1697,10 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("selftest", help="send attack shapes through the live daemon in each agent's hook format")
     p.add_argument("--harness", help="comma-separated subset (default: the agents init installed)")
     p.set_defaults(fn=cmd_selftest)
+
+    p = sub.add_parser("policy", help="check your policy for silent mistakes (unknown rule ids, weakened critical rules)")
+    p.add_argument("action", choices=["lint"]); p.add_argument("--workspace")
+    p.set_defaults(fn=cmd_policy)
 
     p = sub.add_parser("serve", help="run the daemon in the foreground"); p.add_argument("--listen"); p.add_argument("--mode", choices=["shadow", "enforce"])
     p.set_defaults(fn=cmd_serve)
