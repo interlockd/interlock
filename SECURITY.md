@@ -8,6 +8,8 @@ Please **do not open a public issue**. Use GitHub's private vulnerability report
 
 We aim to acknowledge within 3 working days and to agree a disclosure timeline with you.
 
+The threat model (assets, adversaries, where Interlock sees, and its known limits) is in [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md).
+
 ## In scope
 
 - A tool call that should be blocked by a default rule but is not (an encoding, splitting, or tool-swap bypass).

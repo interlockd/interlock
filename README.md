@@ -64,6 +64,9 @@ Policy lives in `~/.interlock/policy.yaml` (user) and `<repo>/.interlock/policy.
 
 ## Honest limits
 
+The full threat model is in [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md).
+
+
 - Interlock sees what the agent's hooks show it. A process the agent starts outside the hook path, or a second unguarded agent, is not gated. Network and sandbox enforcement are on the roadmap.
 - Some agents can't receive a post-action warning (Kiro records it only).
 - The optional judge is uncalibrated for some questions; deterministic rules are the authority for the closed categories.
