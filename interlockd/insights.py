@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import stat
 import urllib.request
 from collections import Counter
@@ -39,6 +40,7 @@ class Report:
     unjudged: int = 0
     gateway_hidden: list[str] = field(default_factory=list)     # "server/tool: reason" from the MCP gateway log
     gateway_pinned: int = 0
+    hook_changes: list[str] = field(default_factory=list)       # control records from the hook watch
 
     def p(self, q: float) -> float:
         xs = sorted(self.latencies)
@@ -63,6 +65,9 @@ def build_report(records: list[dict], *, days: int = 7, now: datetime | None = N
         except ValueError:
             continue
         if ts < cutoff:
+            continue
+        if rec.get("kind") == "control":
+            r.hook_changes.append(f"{rec.get('received_at', '')[:16].replace('T', ' ')}  {rec.get('reason') or ''}"[:140])
             continue
         r.total += 1
         r.pre += rec.get("kind") == "pre_action"
@@ -111,7 +116,7 @@ def add_gateway_log(r: Report, log: Path, *, now: datetime | None = None) -> Non
 
 
 def format_report(r: Report) -> str:
-    if r.total == 0 and not r.gateway_hidden:
+    if r.total == 0 and not r.gateway_hidden and not r.hook_changes:
         return (f"No decisions recorded in the last {r.days} days. Is the daemon running and are hooks installed? "
                 "Try `interlock doctor`.")
     lines = [f"Interlock report: last {r.days} days", "",
@@ -132,6 +137,8 @@ def format_report(r: Report) -> str:
     if r.gateway_hidden or r.gateway_pinned:
         lines += ["", f"MCP gateway: {r.gateway_pinned} tool definitions pinned; hidden from the agent:"]
         lines += [f"  {h}" for h in r.gateway_hidden[:10]] or ["  none"]
+    if r.hook_changes:
+        lines += ["", "Hook changes (enforcement lost or restored):"] + [f"  {h}" for h in r.hook_changes[-10:]]
     if r.examples:
         lines += ["", "Recent stops:"] + [
             f"  {e['at']}  {e['disposition']:<8}{' (shadow)' if e['mode'] == 'shadow' else '         '} {e['tool']:<10} {e['detail']}"
@@ -182,6 +189,52 @@ def expected_shim(harness: str) -> str | None:
     return None
 
 
+def hook_integrity(home: Path) -> list[dict[str, str]]:
+    """For each hook `interlock init` installed: {harness, file, problem, detail}, where problem is "" (intact),
+    "hook_removed" (the agent's hook file no longer runs Interlock), "shim_missing", or "shim_modified"."""
+    from .onboard import Manifest
+
+    man = Manifest.load(home)
+    out = []
+    for hk in (man.hooks if man else []):
+        f, shim = Path(hk["file"]), Path(hk["marker"])
+        row = {"harness": hk["harness"], "file": str(f), "problem": "", "detail": str(f)}
+        try:
+            text = f.read_text(errors="replace") if f.exists() else ""
+        except OSError:
+            text = ""
+        want = expected_shim(hk["harness"])
+        if hk["marker"] not in text:
+            row.update(problem="hook_removed", detail=f"Interlock hook missing from {f} (removed or edited)")
+        elif not shim.exists():
+            row.update(problem="shim_missing", detail=f"shim {shim} missing")
+        elif want is not None and (have := shim.read_text(errors="replace")) != want:
+            if _VERSION_LINE.sub("", have) == _VERSION_LINE.sub("", want):
+                row.update(problem="shim_outdated", detail=f"shim {shim} is from an earlier Interlock version")
+            else:
+                row.update(problem="shim_modified", detail=f"shim {shim} differs from the installed version (tampered or outdated)")
+        out.append(row)
+    return out
+
+
+_VERSION_LINE = re.compile(r'^(?:const )?VERSION\s*=\s*"[^"]*";?$', re.MULTILINE)
+
+
+def refresh_outdated_shims(home: Path) -> list[str]:
+    """Rewrite shims that differ from this version's only in their version line (left by an upgrade). Returns them."""
+    done = []
+    for h in hook_integrity(home):
+        if h["problem"] == "shim_outdated":
+            from .onboard import Manifest
+
+            man = Manifest.load(home)
+            for hk in (man.hooks if man else []):
+                if hk["harness"] == h["harness"] and (want := expected_shim(h["harness"])) is not None:
+                    Path(hk["marker"]).write_text(want)
+                    done.append(hk["marker"])
+    return done
+
+
 def _has_interlock_hook(f: Path, home: Path) -> str | None:
     """The shim path an existing hook file points at, if it is one of ours (covers installs made before the manifest)."""
     if not f.exists():
@@ -221,7 +274,7 @@ def _newer(a: str, b: str) -> bool:
 
 
 def run_doctor(home: Path, listen: str, workspace_root: str | None = None) -> list[Check]:
-    from .onboard import Manifest, detect
+    from .onboard import detect
     from .policy import load_policy
 
     out: list[Check] = []
@@ -261,24 +314,12 @@ def run_doctor(home: Path, listen: str, workspace_root: str | None = None) -> li
     except Exception as e:  # noqa: BLE001
         out.append(Check(False, "policy", f"invalid: {str(e)[:160]}", f"fix {home / 'policy.yaml'}"))
 
-    man = Manifest.load(home)
     hooked = set()
-    for hk in (man.hooks if man else []):
-        f, marker = Path(hk["file"]), hk["marker"]
-        hooked.add(hk["harness"])
-        if not f.exists() or marker not in f.read_text():
-            out.append(Check(False, f"hooks {hk['harness']}", f"Interlock hook missing from {f} (removed or edited)",
-                             f"run `interlock init --yes --harness {hk['harness']}`"))
-            continue
-        shim = Path(marker)
-        want = expected_shim(hk["harness"])
-        if not shim.exists():
-            out.append(Check(False, f"hooks {hk['harness']}", f"shim {shim} missing", "run `interlock init --yes`"))
-        elif want is not None and shim.read_text() != want:
-            out.append(Check(False, f"hooks {hk['harness']}", f"shim {shim} differs from the installed version (tampered or outdated)",
-                             "run `interlock init --yes` to reinstall it"))
-        else:
-            out.append(Check(True, f"hooks {hk['harness']}", f"{f}"))
+    for h in hook_integrity(home):
+        hooked.add(h["harness"])
+        fix = (f"run `interlock init --yes --harness {h['harness']}`" if h["problem"] == "hook_removed"
+               else "run `interlock init --yes` to reinstall it")
+        out.append(Check(not h["problem"], f"hooks {h['harness']}", h["detail"], "" if not h["problem"] else fix))
     for d in detect():
         if not (d.present and d.target) or d.name in hooked:
             continue

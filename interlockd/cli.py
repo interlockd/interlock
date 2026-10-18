@@ -99,7 +99,12 @@ def cmd_serve(args) -> int:
     print(f"interlockd {__version__} listening on http://{host}:{port}  mode={daemon.mode} profile={s.profile}")
     print(f"token: {s.token_path}   spool: {s.spool_dir}" + (f"   dynamodb: {s.dynamodb_table}" if repo else "   repository: spool only"))
 
+    from .watch import HookWatch
+
+    watch = HookWatch(daemon, s.home).start()
+
     def stop(*_):
+        watch.stop()
         # shutdown() blocks until serve_forever() returns, and the signal handler runs on the serving thread,
         # so it must be called from another thread or the daemon deadlocks while still holding the socket.
         print("shutting down")
@@ -130,7 +135,7 @@ def _fmt(rec: dict) -> str:
     arg = rec.get("arguments") or {}
     detail = arg.get("command") or arg.get("path") or arg.get("query") or arg.get("url") or ""
     detail = str(detail).replace("\n", " ")[:70]
-    kind = "pre " if rec.get("kind") == "pre_action" else "post"
+    kind = {"pre_action": "pre ", "post_action": "post", "control": "ctrl"}.get(rec.get("kind", ""), "?   ")
     return f"{ts} {kind} {disp:<5} t{tier} {cls:<22} {tool:<20} {total:>6}ms  {detail}"
 
 
