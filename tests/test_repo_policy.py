@@ -116,3 +116,11 @@ def test_lookup_stops_at_home_and_skips_interlock_state(settings, tmp_path):
     s = Settings(home=tmp_path / "u" / ".interlock"); s.home.mkdir(parents=True)
     (s.home / "policy.yaml").write_text("mode: enforce\n")                     # Interlock's own state, one level up
     assert _bash(_daemon(s), tmp_path / "u", "sudo ls").mode == "shadow"
+
+
+@pytest.mark.skipif(os.getuid() == 0, reason="root-owned files are accepted")
+def test_policy_owned_by_someone_else_is_skipped(tmp_path, monkeypatch):
+    repo = _repo(tmp_path, {"mode": "enforce"})
+    assert find_repo_policy(repo / "src", stop=tmp_path / "nowhere") is not None
+    monkeypatch.setattr(os, "getuid", lambda: os.stat(repo).st_uid + 1)      # as if another user wrote the file
+    assert find_repo_policy(repo / "src", stop=tmp_path / "nowhere") is None

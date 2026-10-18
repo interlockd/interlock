@@ -31,7 +31,8 @@ LOOKUP_TTL_S = 2.0          # how long a directory's lookup is reused; a new or 
 
 def find_repo_policy(cwd: str | Path | None, *, stop: Path | None = None) -> Path | None:
     """The nearest `.interlock/policy.yaml` at or above `cwd`, not looking at or above `stop` (your home directory,
-    whose `.interlock/` is Interlock's own state)."""
+    whose `.interlock/` is Interlock's own state). A file owned by another user (say in a shared /tmp) is skipped,
+    as git does for repositories it doesn't trust."""
     if not cwd:
         return None
     stop = (stop or Path.home()).resolve()
@@ -43,10 +44,17 @@ def find_repo_policy(cwd: str | Path | None, *, stop: Path | None = None) -> Pat
         if p == stop or p.parent == p:
             return None
         f = p / ".interlock" / "policy.yaml"
-        if f.is_file():
+        if f.is_file() and _owned(f):
             return f
         p = p.parent
     return None
+
+
+def _owned(f: Path) -> bool:
+    try:
+        return f.stat().st_uid in (os.getuid(), 0)
+    except (OSError, AttributeError):          # AttributeError: no getuid (Windows)
+        return True
 
 
 def tighten(base: Policy, data: dict[str, Any]) -> tuple[Policy, list[str]]:

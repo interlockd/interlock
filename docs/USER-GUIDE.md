@@ -171,7 +171,7 @@ Policy is YAML. Interlock merges built-in defaults, then `~/.interlock/policy.ya
 |---|---|
 | `mode: enforce`; a stricter `action` for a rule, or re-enabling a rule you turned off; more packs; more `protected_branches`, `protected_paths`, `sensitive_paths`; fewer `allowed_hosts` and package indexes; narrowing `allowed_git_remotes`; `declared_packages_only: true`; MCP `block` entries and a stricter `mcp.default`; toxic-flow detection on, a stricter action, more sources and sinks; a smaller denial budget | `mode: shadow`; disabling or softening a rule; turning packs off; allowing hosts or remotes you have not allowed; `workspace_roots`; the mandate, the judge, fail modes; an MCP `ask` while you block any MCP tool |
 
-To give a repository's policy full effect, list it in your own policy: `trust: { trusted_workspaces: ["~/src/my-org/*"] }`. Every verdict made under a repository policy records its path and hash (`workspace_policy` in the audit record). `INTERLOCK_REPO_POLICIES=0` turns repository policies off.
+To give a repository's policy full effect, list it in your own policy: `trust: { trusted_workspaces: ["~/src/my-org/*"] }`. Every verdict made under a repository policy records its path and hash (`workspace_policy` in the audit record). A policy file owned by another user (for example in a shared `/tmp`) is ignored. `INTERLOCK_REPO_POLICIES=0` turns repository policies off.
 
 ```yaml
 version: 1
