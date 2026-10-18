@@ -81,3 +81,18 @@ def test_cli_exit_codes_and_json(sandbox, capsys):
 def test_pinning(cmd, args, pinned, tmp_path):
     f = check_server(Server(name="s", agent="a", source="x", transport="stdio", command=cmd, args=args), tmp_path)
     assert any(x.rule == "mcp.unpinned_package" for x in f) is not pinned
+
+
+def test_sarif(sandbox, tmp_path):
+    from interlockd.scan import run_scan, to_sarif
+
+    home, proj = sandbox
+    s = to_sarif(run_scan(home, home / ".interlock", proj), proj)
+    run = s["runs"][0]
+    assert s["version"] == "2.1.0" and run["tool"]["driver"]["name"] == "interlock"
+    sh = next(r for r in run["results"] if r["ruleId"] == "mcp.inline_shell")
+    assert sh["level"] == "warning" and sh["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == ".vscode/mcp.json"
+    assert {r["id"] for r in run["tool"]["driver"]["rules"]} >= {"mcp.inline_secret", "mcp.inline_shell"}
+    assert GH_TOKEN not in json.dumps(s)
+    out = tmp_path / "x.sarif"
+    assert main(["scan", "--fail-on", "never", "--sarif", str(out)]) == 0 and json.loads(out.read_text())["runs"]

@@ -35,3 +35,16 @@ jobs:
           uv venv /tmp/wheel --python 3.12
           uv pip install --python /tmp/wheel/bin/python dist/*.whl
           cd /tmp && /tmp/wheel/bin/interlock test
+
+  action:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Plant a risky MCP config to prove the scan sees it
+        run: |
+          mkdir -p .vscode
+          echo '{"servers":{"sh":{"command":"bash","args":["-c","node s.js"]}}}' > .vscode/mcp.json
+      - uses: ./
+        with: { fail-on: never, test-policy: "true" }
+      - name: SARIF has the finding
+        run: python3 -c "import json;r=json.load(open('interlock.sarif'))['runs'][0]['results'];print(len(r),'results');assert any(x['ruleId']=='mcp.inline_shell' for x in r)"

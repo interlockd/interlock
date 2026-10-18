@@ -369,7 +369,7 @@ def cmd_test(args) -> int:
     # layered live policy and ask "does MY policy still catch these?"; the per-case labels then reflect
     # your overrides, so expect divergences you introduced on purpose.
     if args.policy:
-        policy = load_policy(s.workspace_roots[0] if s.workspace_roots else None, home=s.home)
+        policy = load_policy(args.workspace or (s.workspace_roots[0] if s.workspace_roots else None), home=s.home)
     else:
         policy = Policy()
     if args.max_fpr is not None:
@@ -1352,6 +1352,10 @@ def cmd_scan(args) -> int:
     s = _settings(args)
     r = run_scan(Path.home(), s.home, Path(args.project or Path.cwd()).expanduser().resolve())
     print(json.dumps(r.to_json(), indent=2) if args.json else format_scan(r, show_info=args.all))
+    if args.sarif:
+        from .scan import to_sarif
+
+        Path(args.sarif).write_text(json.dumps(to_sarif(r, Path(args.project or Path.cwd()).expanduser().resolve()), indent=2))
     worst = min((SEVERITY_ORDER[f.severity] for f in r.findings), default=99)
     return 1 if args.fail_on != "never" and worst <= SEVERITY_ORDER[args.fail_on] else 0
 
@@ -1445,6 +1449,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--project", help="project directory for project-level configs (default: cwd)")
     p.add_argument("--json", action="store_true"); p.add_argument("--all", action="store_true", help="include info findings")
     p.add_argument("--fail-on", choices=["high", "medium", "low", "never"], default="high", help="exit 1 at or above this severity")
+    p.add_argument("--sarif", help="also write findings as SARIF 2.1.0 to this path (GitHub code scanning)")
     p.set_defaults(fn=cmd_scan)
 
     p = sub.add_parser("mcp", help="run Interlock as an MCP server on stdio (advisory tools for your agent)")
@@ -1493,6 +1498,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--judge", help="also score judge labels with this backend (replay:PATH or http(s):// URL) "
                    "and print a one-line summary; the deterministic result is unaffected")
     p.add_argument("--quiet", action="store_true", help="suppress the table; only set the exit code (and write --json)")
+    p.add_argument("--workspace", help="with --policy: the repository whose .interlock/policy.yaml to layer in (CI)")
     p.set_defaults(fn=cmd_test)
 
     cp = sub.add_parser("corpus", help="build a labelled evaluation corpus from real and synthetic sources")

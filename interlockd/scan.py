@@ -341,3 +341,30 @@ def format_scan(r: ScanResult, *, show_info: bool = False) -> str:
             "Static checks only; tool descriptions are checked live by the MCP gateway (coming).")
     lines += ["", tail]
     return "\n".join(lines)
+
+
+def to_sarif(r: ScanResult, project: Path) -> dict:
+    """SARIF 2.1.0 for GitHub code scanning. Paths inside the project are made relative so annotations land on files."""
+    from . import __version__
+
+    level = {"high": "error", "medium": "warning", "low": "note", "info": "note"}
+    rules: dict[str, dict] = {}
+    results = []
+    for f in r.findings:
+        if f.severity == "info":
+            continue
+        rules.setdefault(f.rule, {"id": f.rule, "name": f.rule, "shortDescription": {"text": f.rule.replace(".", " ").replace("_", " ")},
+                                  "defaultConfiguration": {"level": level[f.severity]}})
+        src = f.source.split(" [project", 1)[0] if f.source else ""
+        try:
+            uri = str(Path(src).resolve().relative_to(project)) if src else ""
+        except ValueError:
+            uri = ""
+        loc = [{"physicalLocation": {"artifactLocation": {"uri": uri}}}] if uri else []
+        results.append({"ruleId": f.rule, "level": level[f.severity],
+                        "message": {"text": f"{f.agent} / {f.subject}: {f.message}" + (f". Fix: {f.fix}" if f.fix else "")},
+                        "locations": loc})
+    return {"$schema": "https://json.schemastore.org/sarif-2.1.0.json", "version": "2.1.0",
+            "runs": [{"tool": {"driver": {"name": "interlock", "version": __version__,
+                                          "informationUri": "https://github.com/interlockd/interlock", "rules": list(rules.values())}},
+                      "results": results}]}

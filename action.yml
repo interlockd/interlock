@@ -1,0 +1,56 @@
+name: Interlock
+description: Audit MCP servers and agent configs, and test your agent security policy, in CI.
+author: interlockd
+branding: { icon: shield, color: blue }
+
+inputs:
+  scan:
+    description: Run `interlock scan` on the repository's MCP and agent configs (.mcp.json, .cursor/, .vscode/, .kiro/, .gemini/, .claude/)
+    default: "true"
+  fail-on:
+    description: Fail the job on scan findings at or above this severity (high | medium | low | never)
+    default: high
+  sarif:
+    description: Write scan findings as SARIF to this path (upload it with github/codeql-action/upload-sarif)
+    default: interlock.sarif
+  test-policy:
+    description: Run `interlock test --policy` against the repository's .interlock/policy.yaml (if present)
+    default: "true"
+  corpus:
+    description: Extra corpus directory of your own cases (optional)
+    default: ""
+  version:
+    description: Interlock version to install from PyPI (empty = the version of this action)
+    default: ""
+
+outputs:
+  sarif:
+    description: Path of the SARIF file
+    value: ${{ inputs.sarif }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with: { python-version: "3.12" }
+    - name: Install Interlock
+      shell: bash
+      run: |
+        if [ -n "${{ inputs.version }}" ]; then pip install --quiet "interlock==${{ inputs.version }}"
+        else pip install --quiet "${{ github.action_path }}"; fi
+        interlock --help >/dev/null
+    - name: Scan MCP servers and agent configs
+      if: inputs.scan == 'true'
+      shell: bash
+      run: |
+        # an empty HOME keeps the scan to this repository's own configs
+        export HOME="$(mktemp -d)"
+        interlock scan --project "$GITHUB_WORKSPACE" --fail-on "${{ inputs.fail-on }}" --sarif "$GITHUB_WORKSPACE/${{ inputs.sarif }}"
+    - name: Test the policy
+      if: inputs.test-policy == 'true'
+      shell: bash
+      run: |
+        export HOME="$(mktemp -d)"
+        args=(test --policy --workspace "$GITHUB_WORKSPACE")
+        [ -n "${{ inputs.corpus }}" ] && args+=(--corpus "${{ inputs.corpus }}")
+        interlock "${args[@]}"

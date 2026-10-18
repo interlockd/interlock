@@ -65,6 +65,17 @@ Policy lives in `~/.interlock/policy.yaml` (user) and `<repo>/.interlock/policy.
 - Some agents can't receive a post-action warning (Kiro records it only).
 - The optional judge is uncalibrated for some questions; deterministic rules are the authority for the closed categories.
 
+## In CI
+
+```yaml
+- uses: actions/checkout@v4
+- uses: interlockd/interlock@v0.1.0        # scan MCP/agent configs, test .interlock/policy.yaml
+  with: { fail-on: high }
+- uses: github/codeql-action/upload-sarif@v3
+  if: always()
+  with: { sarif_file: interlock.sarif }
+```
+
 ## Contributing
 
 Adapters for new agents, rules, and corpus cases are all welcome. See [CONTRIBUTING.md](CONTRIBUTING.md). Security issues: [SECURITY.md](SECURITY.md).
