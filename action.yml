@@ -36,7 +36,7 @@ runs:
     - name: Install Interlock
       shell: bash
       run: |
-        if [ -n "${{ inputs.version }}" ]; then pip install --quiet "interlock==${{ inputs.version }}"
+        if [ -n "${{ inputs.version }}" ]; then pip install --quiet "interlockd==${{ inputs.version }}"
         else pip install --quiet "${{ github.action_path }}"; fi
         interlock --help >/dev/null
     - name: Scan MCP servers and agent configs

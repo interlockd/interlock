@@ -76,7 +76,7 @@ def build(home: Path, interlock_home: Path, project: Path) -> dict:
     components, services, deps = [], [], []
     il_ref = "interlock"
     components.append({"type": "application", "bom-ref": il_ref, "name": "interlock", "version": __version__,
-                       "purl": f"pkg:pypi/interlock@{__version__}", "description": "Pre/post-action gate for AI agents"})
+                       "purl": f"pkg:pypi/interlockd@{__version__}", "description": "Pre/post-action gate for AI agents"})
     for d in detect(project):
         if d.present:
             components.append({"type": "application", "bom-ref": f"agent:{d.name}", "name": d.name,

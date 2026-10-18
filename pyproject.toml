@@ -1,5 +1,5 @@
 [project]
-name = "interlock"
+name = "interlockd"
 version = "0.1.0"
 description = "Interlock daemon: a pre/post-action interlock for coding agents"
 readme = "README.md"

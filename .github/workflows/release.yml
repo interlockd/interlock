@@ -2,7 +2,7 @@ name: release
 
 # Publish to PyPI when a version tag is pushed (git tag v0.1.0 && git push origin v0.1.0).
 # Uses PyPI trusted publishing: no API token is stored. One-time setup on pypi.org:
-#   project "interlock" → Publishing → add GitHub publisher: owner interlockd, repo interlock,
+#   project "interlockd" → Publishing → add GitHub publisher: owner interlockd, repo interlock,
 #   workflow release.yml, environment pypi.
 
 on:

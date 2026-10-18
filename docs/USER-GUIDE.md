@@ -38,7 +38,7 @@ A new install runs in **shadow** mode: every decision is computed and recorded, 
 Prerequisites: Python 3.12 or newer, `curl`, and at least one supported agent (Claude Code, Codex, or Kiro; §4).
 
 ```sh
-pipx install interlock          # or: uv tool install interlock
+pipx install interlockd         # or: uv tool install interlockd
 interlock init                  # detect agents, install hooks, write a starter policy, start the daemon
 interlock log -f                # watch decisions live
 ```
@@ -74,15 +74,15 @@ Writes are refused to shell startup files, `~/.ssh`, `~/.gitconfig`, LaunchAgent
 Agents you build yourself have no hook file; use the in-process integrations. Both talk to the same local daemon, policy, and audit log as the hooks:
 
 ```python
-# Strands Agents   (pip install 'interlock[strands]')
+# Strands Agents   (pip install 'interlockd[strands]')
 from interlockd.integrations.strands import InterlockHooks
 agent = Agent(tools=[...], hooks=[InterlockHooks()])
 
-# LangChain / LangGraph   (pip install 'interlock[langchain]')
+# LangChain / LangGraph   (pip install 'interlockd[langchain]')
 from interlockd.integrations.langchain import guard_tools
 agent = create_react_agent(model, guard_tools([search, shell]))
 
-# OpenAI Agents SDK   (pip install 'interlock[openai-agents]'): uses the SDK's own tool guardrails
+# OpenAI Agents SDK   (pip install 'interlockd[openai-agents]'): uses the SDK's own tool guardrails
 from interlockd.integrations.openai_agents import guard_agent_tools
 agent = guard_agent_tools(Agent(name="dev", tools=[shell, search]))
 ```
@@ -191,7 +191,7 @@ judge:
     local:                                    # vendor-neutral detector, no AWS or network
       enabled: true
       threshold: 0.6                          # heuristic score that produces a finding
-      classifier_model: null                  # e.g. meta-llama/Llama-Prompt-Guard-2-86M; pip install 'interlock[promptguard]'
+      classifier_model: null                  # e.g. meta-llama/Llama-Prompt-Guard-2-86M; pip install 'interlockd[promptguard]'
       classifier_threshold: 0.8
 ```
 

@@ -8,7 +8,7 @@ It runs locally. No account, no cloud, no model download required.
 
 
 ```sh
-pipx install interlock      # or: uv tool install interlock
+pipx install interlockd     # or: uv tool install interlockd
 interlock init              # finds your agents, installs hooks, starts the daemon (shadow mode)
 ```
 

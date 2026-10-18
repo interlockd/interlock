@@ -79,7 +79,7 @@ def _requirements(meta: dict) -> list[tuple[str, str | None]]:
 
 def main(version: str, fetch=pypi) -> str:
     """Resolve runtime deps transitively; an exact pin (pydantic -> pydantic-core==X) wins over the latest release."""
-    meta = fetch("interlock", version)
+    meta = fetch("interlockd", version)
     pins: dict[str, str] = {}
     queue = _requirements(meta)
     while queue:

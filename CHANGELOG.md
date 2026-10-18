@@ -14,7 +14,7 @@ First public release.
 - Memory-poisoning protection: writes to agent instruction files (CLAUDE.md, AGENTS.md, ...) and MCP memory tools are recorded, and asked when the content reads as injected or the session took in untrusted content.
 - `interlock egress-proxy`: decides every outbound host (metadata endpoints refused; `--strict` allowlist); `interlock sandbox --egress` makes it the agent's only way out.
 - `interlock sandbox -- <agent>`: OS-level sandbox (macOS seatbelt; Linux bubblewrap) refusing persistence and guard-rail writes, with optional secret-read and network limits.
-- Packaging: PyPI release workflow (trusted publishing) and a Homebrew formula generator for `interlockd/homebrew-tap`.
+- Packaging: published on PyPI as `interlockd` (the command is still `interlock`) via a trusted-publishing release workflow, and a Homebrew formula generator for `interlockd/homebrew-tap`.
 - `interlock replay`: re-decide recorded calls with your current policy and see what would change.
 - `interlock policy lint`: unknown rule ids (a typo in an override silently does nothing), weakened critical rules, catch-all allows.
 - `interlock selftest`: attack shapes through the live daemon in each agent's hook format; run by `init`.
