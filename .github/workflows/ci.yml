@@ -31,8 +31,8 @@ jobs:
         run: .venv/bin/interlock test --corpus corpus/archetypes
       - name: Framework integrations (Strands, LangChain) against a real daemon
         run: |
-          uv pip install --python .venv/bin/python strands-agents langchain-core
-          .venv/bin/pytest -q tests/test_strands.py tests/test_langchain.py
+          uv pip install --python .venv/bin/python strands-agents langchain-core openai-agents
+          .venv/bin/pytest -q tests/test_strands.py tests/test_langchain.py tests/test_openai_agents.py
       - name: Wheel smoke test
         run: |
           uv build --wheel -o dist

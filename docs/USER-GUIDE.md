@@ -56,7 +56,7 @@ Codex asks you to trust new hooks: open Codex and run `/hooks` once. Kiro reads 
 
 From a source checkout instead: `uv venv --python 3.12 && uv pip install -e ".[dev]" --python .venv/bin/python`, then use `.venv/bin/interlock`.
 
-### 2.0 Custom agents (Strands, LangChain / LangGraph)
+### 2.0 Custom agents (Strands, LangChain / LangGraph, OpenAI Agents SDK)
 
 Agents you build yourself have no hook file; use the in-process integrations. Both talk to the same local daemon, policy, and audit log as the hooks:
 
@@ -68,9 +68,13 @@ agent = Agent(tools=[...], hooks=[InterlockHooks()])
 # LangChain / LangGraph   (pip install 'interlock[langchain]')
 from interlockd.integrations.langchain import guard_tools
 agent = create_react_agent(model, guard_tools([search, shell]))
+
+# OpenAI Agents SDK   (pip install 'interlock[openai-agents]'): uses the SDK's own tool guardrails
+from interlockd.integrations.openai_agents import guard_agent_tools
+agent = guard_agent_tools(Agent(name="dev", tools=[shell, search]))
 ```
 
-A refused call never runs: Strands receives Interlock's notice as a cancelled tool result, LangChain as the tool's output. An injected result is replaced by the notice. Tools you name freely (`run_command`, `exec`, ...) still get the shell rules when they take a `command` argument. Any other framework can call `interlockd.integrations.client.InterlockClient().decide(...)` directly.
+A refused call never runs: Strands receives Interlock's notice as a cancelled tool result, LangChain as the tool's output, the OpenAI Agents SDK through `reject_content`. An injected result is replaced by the notice. Tools you name freely (`run_command`, `exec`, ...) still get the shell rules when they take a `command` argument. Any other framework can call `interlockd.integrations.client.InterlockClient().decide(...)` directly.
 
 ### 2.1 The MCP gateway
 
