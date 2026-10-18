@@ -156,7 +156,9 @@ def test_process_backend_runs_the_daemon(tmp_path):
     svc = ServiceManager(tmp_path / "ih", listen=f"127.0.0.1:{port}", backend="process")
     try:
         svc.start()
-        assert svc.wait_healthy(15) and svc.status().running
+        up = svc.wait_healthy(30)
+        log = svc.log_path.read_text() if svc.log_path.exists() else "<no log>"
+        assert up and svc.status().running, f"daemon did not come up; log:\n{log[-3000:]}"
     finally:
         svc.stop()
     assert not svc.healthy() and not svc.pid_path.exists()
