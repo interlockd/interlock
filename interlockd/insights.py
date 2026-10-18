@@ -272,6 +272,13 @@ def run_doctor(home: Path, listen: str, workspace_root: str | None = None) -> li
     if not hooked:
         out.append(Check(False, "hooks", "no Interlock hooks found in any harness", "run `interlock init`"))
 
+    from .control import PauseState
+
+    ps = PauseState(home).current()
+    if ps is not None:
+        out.append(Check(True, "paused", f"{', '.join(ps.get('agents') or []) or 'all agents'} paused"
+                         + (f" until {ps['until']}" if ps.get("until") else "") + (f" ({ps['reason']})" if ps.get("reason") else ""),
+                         "interlock resume", warn=True))
     sd = home / "spool"
     if sd.exists():
         from .store.spool import Spool

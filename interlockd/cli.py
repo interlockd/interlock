@@ -1376,6 +1376,12 @@ def cmd_service(args) -> int:
     print(f"daemon      {'running' if st.running else 'not running'}  http://{s.listen}")
     print(f"service     {st.backend}  {'installed' if st.installed else 'not installed'}  {st.detail}")
     print(f"mode        {pol.mode}   policy {pol.source_paths or ['built-in defaults']}")
+    from .control import PauseState
+
+    ps = PauseState(s.home).current()
+    if ps is not None:
+        print(f"PAUSED      {', '.join(ps.get('agents') or []) or 'all agents'}" + (f" until {ps['until']}" if ps.get("until") else "")
+              + "   (interlock resume)")
     print(f"hooks       {', '.join(h['harness'] for h in man.hooks) if man and man.hooks else 'none recorded (run interlock init)'}")
     return 0 if st.running else 1
 
@@ -1717,6 +1723,20 @@ def cmd_egress_proxy(args) -> int:
     return 0
 
 
+def cmd_pause(args) -> int:
+    from .control import pause, resume
+
+    s = _settings(args)
+    if args.cmd == "resume":
+        print("resumed: agents may act again" if resume(s.home) else "not paused")
+        return 0
+    st = pause(s.home, agents=args.agent, minutes=args.minutes, reason=args.reason or "")
+    who = ", ".join(st["agents"]) or "all agents"
+    print(f"paused {who}" + (f" until {st['until']}" if st["until"] else " until `interlock resume`")
+          + "; every tool call is refused, in any mode")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="interlock", description="Interlock: a pre/post-action interlock for coding agents")
     ap.add_argument("--home", help="Interlock home (default ~/.interlock or $INTERLOCK_HOME)")
@@ -1815,6 +1835,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--listen", default="127.0.0.1:7392"); p.add_argument("--strict", action="store_true",
                    help="refuse hosts outside trust.allowed_hosts")
     p.set_defaults(fn=cmd_egress_proxy)
+
+    p = sub.add_parser("pause", help="kill switch: refuse every agent action until `interlock resume`")
+    p.add_argument("--agent", action="append", help="only this agent type (repeatable), e.g. claude-code, codex, mcp-proxy")
+    p.add_argument("--minutes", type=float, help="resume automatically after this long"); p.add_argument("--reason")
+    p.set_defaults(fn=cmd_pause)
+    p = sub.add_parser("resume", help="lift `interlock pause`"); p.set_defaults(fn=cmd_pause)
 
     p = sub.add_parser("serve", help="run the daemon in the foreground"); p.add_argument("--listen"); p.add_argument("--mode", choices=["shadow", "enforce"])
     p.set_defaults(fn=cmd_serve)

@@ -4,6 +4,7 @@ the MCP server, and docs. A test keeps this table complete."""
 from __future__ import annotations
 
 WHY: dict[str, str] = {
+    "control.paused": "The user paused agent activity with `interlock pause`; nothing runs until `interlock resume`.",
     "budget.denials": "The agent kept hitting refusals in this session; Interlock now asks you rather than letting it keep trying variations.",
     "egress.cloud_metadata_endpoint": "Requests to the cloud metadata endpoint (169.254.169.254 and friends) can return the machine's cloud credentials.",
     "egress.dns_exfil_pattern": "Long encoded labels in DNS lookups are a way to smuggle data out past firewalls.",

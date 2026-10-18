@@ -53,6 +53,9 @@ class Daemon:
         self.mode = self.policy.mode if policy is not None else settings.mode
         self.backend = None      # DecisionBackend, set by the CLI from policy.judge.primary
         self.probe = None        # BedrockGuardrailsProbe, set by the CLI when policy.judge.probe.enabled
+        from .control import PauseState
+
+        self.pause_state = PauseState(settings.home)
         self.otel = None
         if settings.otlp_endpoint:
             from .otel import Exporter
@@ -341,6 +344,18 @@ class Daemon:
             unjudged=unjudged,
             timing_ms={},
         )
+        paused = self.pause_state.applies(event.identity.agent_type or event.adapter.name) if event.kind == "pre_action" else None
+        if paused is not None:                            # the kill switch: enforced in any mode
+            from .control import R_PAUSED
+            from .models import Finding
+
+            why = paused.get("reason") or "paused by the user"
+            verdict.disposition, verdict.mode, verdict.reason = "block", "enforce", f"control: agents paused ({why})"
+            verdict.notice = (f"[interlock] All agent actions are paused by the user ({why}). This action was NOT executed. "
+                              "Stop and wait for the user; do not retry.")
+            verdict.findings = [*verdict.findings, Finding(category="control.kill_switch", severity="critical", rule=R_PAUSED,
+                                                           detector="interlock.control", path="session", subject=why)]
+            disposition = "block"
         self.ledger.record_disposition(event.session_hint, disposition if self.mode == "enforce" else "allow")
         flow_observe(event, session, pol, findings)
 
