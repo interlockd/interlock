@@ -43,13 +43,16 @@ def test_wrap_unwrap_is_exact(sandbox):
     ch = gateway.apply(True, home=home, project=proj, python="/py")
     got = {(c.agent, c.server): c.action for c in ch}
     assert got[("cursor", "gh")] == "wrapped" and got[("vscode", "fs")] == "wrapped" and got[("claude-code", "pg")] == "wrapped"
-    assert got[("cursor", "remote")] == "skipped" and got[("kiro", "fetch")] == "skipped" and got[("kiro", "interlock")] == "skipped"
+    assert got[("cursor", "remote")] == "wrapped" and got[("kiro", "fetch")] == "skipped" and got[("kiro", "interlock")] == "skipped"
     cur = json.loads((home / ".cursor" / "mcp.json").read_text())["mcpServers"]
+    assert cur["remote"]["url"].startswith("http://127.0.0.1:7391/mcp/remote/")          # via the HTTP gateway
+    from interlockd.mcp_http import Routes
+    assert Routes(home / ".interlock").load()["routes"]["remote"]["url"] == "https://mcp.example.com/mcp"
     assert cur["gh"]["args"][-3:] == ["npx", "-y", "@modelcontextprotocol/server-github@1.2.0"] and cur["gh"]["env"] == {"X": "${X}"}
     assert (home / ".cursor" / "mcp.json.interlock-backup").read_text() == original[home / ".cursor" / "mcp.json"]
     assert all(c.action != "wrapped" for c in gateway.apply(True, home=home, project=proj, python="/py"))   # idempotent
     st = {(c.agent, c.server): c.action for c in gateway.status(home, proj)}
-    assert st[("cursor", "gh")] == "wrapped"
+    assert st[("cursor", "gh")] == "wrapped" and st[("cursor", "remote")] == "wrapped"
 
     gateway.apply(False, home=home, project=proj)
     for f, text in original.items():
@@ -86,3 +89,63 @@ def test_init_gateway_and_uninstall(sandbox, monkeypatch):
     assert main(["uninstall", "--yes"]) == 0
     for f, text in original.items():
         assert json.loads(f.read_text()) == json.loads(text), f
+
+
+CODEX_TOML = '''model = "gpt-x"   # top-level stays
+approval_policy = "on-request"
+
+[mcp_servers.github]
+# the GitHub server
+command = "npx"
+args = [
+  "-y",
+  "@modelcontextprotocol/server-github@1.2.0",  # pinned
+]
+startup_timeout_sec = 20
+
+[mcp_servers.github.env]
+GITHUB_TOKEN = "${GITHUB_TOKEN}"
+
+[mcp_servers.pg]
+command = "postgres-mcp"
+
+[mcp_servers."my.server"]
+command = "uvx"
+args = ["my-server==1.0"]
+
+[mcp_servers.remote]
+url = "https://mcp.example.com/mcp"
+
+[projects."/x"]
+trust_level = "trusted"
+'''
+
+
+def test_codex_toml_wrap_unwrap(tmp_path):
+    import tomllib
+
+    home = tmp_path / "home"; (home / ".codex").mkdir(parents=True)
+    f = home / ".codex" / "config.toml"; f.write_text(CODEX_TOML)
+    before = tomllib.loads(CODEX_TOML)
+    ch = {(c.server, c.action) for c in gateway.apply(True, home=home, project=tmp_path, python="/py")}
+    assert {("github", "wrapped"), ("pg", "wrapped"), ("my.server", "wrapped"), ("remote", "skipped")} <= ch
+    after = tomllib.loads(f.read_text())
+    gh = after["mcp_servers"]["github"]
+    assert gh["command"] == "/py" and gh["args"][-3:] == ["npx", "-y", "@modelcontextprotocol/server-github@1.2.0"]
+    assert gh["env"] == {"GITHUB_TOKEN": "${GITHUB_TOKEN}"} and gh["startup_timeout_sec"] == 20
+    assert after["model"] == "gpt-x" and after["projects"] == before["projects"] and after["mcp_servers"]["remote"] == before["mcp_servers"]["remote"]
+    assert "# the GitHub server" in f.read_text() and "--bare" in after["mcp_servers"]["pg"]["args"]
+    assert (home / ".codex" / "config.toml.interlock-backup").read_text() == CODEX_TOML
+    assert not [c for c in gateway.apply(True, home=home, project=tmp_path, python="/py") if c.action == "wrapped"]   # idempotent
+
+    gateway.apply(False, home=home, project=tmp_path)
+    assert tomllib.loads(f.read_text()) == before                     # same values; only those two lines' layout may differ
+
+
+def test_codex_inline_table_is_reported_not_touched(tmp_path):
+    home = tmp_path / "home"; (home / ".codex").mkdir(parents=True)
+    f = home / ".codex" / "config.toml"
+    f.write_text('mcp_servers = { inline = { command = "npx", args = ["-y", "x@1"] } }\n')
+    text = f.read_text()
+    ch = gateway.apply(True, home=home, project=tmp_path, python="/py")
+    assert [(c.server, c.action) for c in ch] == [("inline", "skipped")] and f.read_text() == text

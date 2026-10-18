@@ -45,9 +45,11 @@ def tool_fingerprint(tool: dict) -> str:
 class Pins:
     """~/.interlock/mcp-pins.json: {server: {tool: {sha256, pinned_at}}}. Trust on first use, then compare."""
 
+    _lock = threading.Lock()          # one lock per process: stdio and HTTP gateways may share the pins file
+
     def __init__(self, path: Path):
         self.path = path
-        self.lock = threading.Lock()
+        self.lock = Pins._lock
 
     def load(self) -> dict:
         try:
@@ -91,8 +93,12 @@ class Pins:
 
 class Proxy:
     def __init__(self, name: str, command: list[str], settings: Settings | None = None, *,
-                 client_in: TextIO = sys.stdin, client_out: TextIO = sys.stdout):
+                 client_in: TextIO = sys.stdin, client_out: TextIO = sys.stdout,
+                 decider=None, mode_fn=None, session: str | None = None, quiet: bool = False):
+        """`decider(event_dict) -> verdict_dict | None` and `mode_fn() -> str` replace the HTTP calls to the daemon when
+        the gateway runs inside it (the HTTP transport); `session` overrides the per-agent session key."""
         self.name, self.command = name, command
+        self._decider, self._mode_fn, self._session, self._quiet = decider, mode_fn, session, quiet
         self.settings = settings or Settings.load()
         self.client_in, self.client_out = client_in, client_out
         self.pins = Pins(self.settings.home / "mcp-pins.json")
@@ -111,7 +117,8 @@ class Proxy:
                 f.write(line + "\n")
         except OSError:
             pass
-        print(f"interlock: {msg}", file=sys.stderr, flush=True)    # MCP clients surface server stderr in their logs
+        if not self._quiet:
+            print(f"interlock: {msg}", file=sys.stderr, flush=True)    # MCP clients surface server stderr in their logs
 
     def to_client(self, msg: dict) -> None:
         with self.out_lock:
@@ -128,6 +135,8 @@ class Proxy:
 
     def mode(self) -> str:
         """The daemon's live mode; shadow when it can't be reached (decisions still logged locally)."""
+        if self._mode_fn is not None:
+            return self._mode_fn()
         if self._mode is None:
             host, _, port = self.settings.listen.rpartition(":")
             try:
@@ -138,16 +147,24 @@ class Proxy:
         return self._mode
 
     def decide(self, kind: str, tool: str, arguments: dict, content: str | None = None) -> dict | None:
-        tok = self.token()
+        tok = self.token() if self._decider is None else "in-process"
         if not tok:
             return None
+        # every server an agent launches shares the agent's pid: one session per agent, across all its MCP servers
         event = {"kind": kind, "adapter": {"name": "mcp-proxy", "version": __version__},
+                 "session_hint": self._session or f"mcp-agent-{os.getppid()}",
                  "identity": {"agent_type": "mcp-proxy", "agent_workspace": Path.cwd().name},
                  "tool_call": {"name": f"mcp__{self.name}__{tool}", "arguments": arguments or {}},
                  "context": {"cwd": str(Path.cwd()), "mcp_server": {"name": self.name, "source": "mcp-proxy"}},
                  "capabilities": {"ask": False, "rewrite": False, "withhold": True}}
         if content is not None:
             event["result"] = {"content": content}
+        if self._decider is not None:
+            try:
+                return self._decider(event)
+            except Exception as e:  # noqa: BLE001
+                self.log(f"decision failed ({type(e).__name__}); applying fail mode")
+                return None
         host, _, port = self.settings.listen.rpartition(":")
         req = urllib.request.Request(f"http://{host or '127.0.0.1'}:{port}/interlock/v1/decide",
                                      data=json.dumps(event).encode(), method="POST")

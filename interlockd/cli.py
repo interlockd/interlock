@@ -1322,11 +1322,15 @@ def cmd_report(args) -> int:
     s = _settings(args)
     recs = list(Spool(s.spool_dir, fsync=False).iter_records()) if s.spool_dir.exists() else []
     r = build_report(recs, days=args.days)
+    from .insights import add_gateway_log
+
+    add_gateway_log(r, s.home / "mcp-proxy.log")
     if args.json:
         print(json.dumps({"days": r.days, "total": r.total, "pre": r.pre, "post": r.post,
                           "by_disposition": r.by_disposition, "shadow_would": r.shadow_would, "enforced": r.enforced,
                           "top_rules": r.rules.most_common(20), "agents": r.agents, "examples": r.examples,
-                          "latency_ms": {"p50": r.p(0.5), "p95": r.p(0.95)}}, indent=2))
+                          "latency_ms": {"p50": r.p(0.5), "p95": r.p(0.95)},
+                          "gateway": {"pinned": r.gateway_pinned, "hidden": r.gateway_hidden}}, indent=2))
     else:
         print(format_report(r))
     return 0

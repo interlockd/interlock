@@ -66,7 +66,7 @@ Hooks see the tool calls an agent makes; the MCP gateway sees every MCP server t
 | Each tool call | Decided by the daemon like any other tool call, including the shell rules for terminal-style tools that take a `command`. A refusal is returned to the agent as a tool error and never reaches the server |
 | Each tool result | Run through the injection probe; a withhold replaces the content with a notice |
 
-Log: `~/.interlock/mcp-proxy.log`. Pins: `~/.interlock/mcp-pins.json`; after reviewing a legitimate change, `interlock mcp-pins --accept <server>`. Covered automatically: Claude Code (user scope via `claude mcp`, project `.mcp.json`), Claude Desktop, Cursor, VS Code, Kiro, Gemini CLI, Windsurf. Not yet: Codex (edit `~/.codex/config.toml` by hand: `command = "<python>"`, `args = ["-m", "interlockd", "mcp-proxy", "--name", "<server>", "--", <original command and args>]`) and remote HTTP servers (HTTP gateway planned). Restart your agents after wrapping.
+Log: `~/.interlock/mcp-proxy.log`. Pins: `~/.interlock/mcp-pins.json`; after reviewing a legitimate change, `interlock mcp-pins --accept <server>`. Covered automatically: Claude Code (user scope via `claude mcp`, project `.mcp.json`), Claude Desktop, Cursor, VS Code, Kiro, Gemini CLI, Windsurf. Codex: `~/.codex/config.toml` is edited by rewriting only `command` and `args` in each `[mcp_servers.<name>]` table, and the result is re-parsed and compared before anything is written (inline-table entries are reported, not touched; unwrap restores the values, though those two lines may be laid out differently). Remote (Streamable HTTP) servers go through the daemon itself: `wrap` changes their `url` to `http://127.0.0.1:7391/mcp/<name>/<secret>` and records the real URL in `~/.interlock/gateway-routes.json` (mode 0600); the path secret stands in for the daemon token because the agent's own `Authorization` header is passed to the real server. The same pins, tool hiding, call decisions, and result checks apply to JSON and streaming (SSE) responses. While the daemon is down, wrapped remote servers are unreachable (fail closed). Remote servers in Codex's TOML are reported for manual setup. Restart your agents after wrapping.
 
 ### Daemon configuration (`~/.interlock/config.json`)
 
@@ -155,6 +155,41 @@ judge:
       classifier_model: null                  # e.g. meta-llama/Llama-Prompt-Guard-2-86M; pip install 'interlock[promptguard]'
       classifier_threshold: 0.8
 ```
+
+### MCP servers and tools (`mcp:`)
+
+Decide per MCP server and tool, for every agent (Claude Code, Codex, Cursor, Gemini CLI, Kiro) and the MCP gateway:
+
+```yaml
+mcp:
+  default: allow            # allow | ask | block for anything no pattern matches; `ask` makes every new server opt-in
+  tools:
+    github: allow           # a whole server
+    "github/delete_*": ask  # server/tool globs
+    "github/delete_repo": block
+    "*/drop_*": block       # any server
+```
+
+The most specific pattern wins: a pattern that names a tool beats a server-wide one, exact beats glob, longer beats shorter. Matches fire `mcp.tool_blocked` (block) or `mcp.tool_requires_approval` (ask), which `packs.overrides` can tune like any rule. Tools that take a `command` also get the shell rules, whatever this section says.
+
+### Toxic flows (`flow:`)
+
+Some exfiltration is only visible across a session: the agent reads private data, later takes in untrusted content (a web page, an issue, an email that carries instructions), and then makes a call that can send data out. Each step alone is ordinary. Interlock tracks the first two per session and fires `flow.lethal_trifecta` on the third:
+
+| Leg | Comes from |
+|---|---|
+| Private data | sensitive-path reads, secrets seen in a tool result, MCP tools matching `flow.private_sources` (mail, drive, databases, secret stores by default) |
+| Untrusted content | web / network tool results, MCP results matching `flow.untrusted_sources` (fetch, browser, search, issues, email by default), any result the injection probe flagged |
+| Exfiltration-capable call | network egress from the shell or a web tool, `git push`, MCP tools matching `flow.sinks` (send, post, create, upload, comment, ...) |
+
+```yaml
+flow:
+  enabled: true
+  action: ask           # block | ask | flag
+  private_sources: ["*mail*/*", "*postgres*/*", "*vault*/*", ...]   # server/tool globs; replace to customize
+```
+
+Sessions are the agent's own session id for hook traffic, and the launching agent's process for MCP gateway traffic, so taint never crosses between agents.
 
 ### Rule catalog
 

@@ -78,3 +78,18 @@ def test_doctor_flags_loose_token_and_bad_policy(sandbox):
     (il / "policy.yaml").write_text("mode: sideways\n")
     c = _checks(sandbox)
     assert not c["token"].ok and not c["policy"].ok
+
+
+def test_report_includes_gateway_interventions(tmp_path):
+    from interlockd.insights import add_gateway_log
+
+    log = tmp_path / "mcp-proxy.log"
+    log.write_text("2026-10-17T11:00:00Z [fake] pinned 4 tool definition(s): a, b, c, d\n"
+                   "2026-10-17T11:00:00Z [fake] hid tool add: description reads as instructions to the model (0.84: ...)\n"
+                   "2026-10-17T11:01:00Z [gh] would hide (shadow) tool shell: definition changed since it was pinned\n"
+                   "2026-10-01T11:00:00Z [old] hid tool x: too old\n")
+    r = build_report([], days=7, now=NOW)
+    add_gateway_log(r, log, now=NOW)
+    assert r.gateway_pinned == 4 and len(r.gateway_hidden) == 2 and r.gateway_hidden[1].endswith("(shadow)")
+    text = format_report(r)
+    assert "MCP gateway: 4 tool definitions pinned" in text and "fake/add" in text

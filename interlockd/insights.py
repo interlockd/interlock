@@ -37,6 +37,8 @@ class Report:
     examples: list[dict] = field(default_factory=list)
     latencies: list[float] = field(default_factory=list)
     unjudged: int = 0
+    gateway_hidden: list[str] = field(default_factory=list)     # "server/tool: reason" from the MCP gateway log
+    gateway_pinned: int = 0
 
     def p(self, q: float) -> float:
         xs = sorted(self.latencies)
@@ -83,8 +85,31 @@ def build_report(records: list[dict], *, days: int = 7, now: datetime | None = N
     return r
 
 
+def add_gateway_log(r: Report, log: Path, *, now: datetime | None = None) -> None:
+    """Tool-list interventions live in ~/.interlock/mcp-proxy.log (calls and results are already in the spool)."""
+    if not log.exists():
+        return
+    cutoff = ((now or datetime.now(UTC)) - timedelta(days=r.days)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    for line in log.read_text(errors="replace").splitlines():
+        if line[:20] < cutoff:
+            continue
+        try:
+            server = line.split("[", 1)[1].split("]", 1)[0]
+            msg = line.split("] ", 1)[1]
+        except IndexError:
+            continue
+        for marker in ("hid tool ", "would hide (shadow) tool "):
+            if msg.startswith(marker):
+                tool, _, why = msg[len(marker):].partition(": ")
+                entry = f"{server}/{tool}: {why[:80]}" + (" (shadow)" if "shadow" in marker else "")
+                if entry not in r.gateway_hidden:
+                    r.gateway_hidden.append(entry)
+        if msg.startswith("pinned "):
+            r.gateway_pinned += int(msg.split()[1])
+
+
 def format_report(r: Report) -> str:
-    if r.total == 0:
+    if r.total == 0 and not r.gateway_hidden:
         return (f"No decisions recorded in the last {r.days} days. Is the daemon running and are hooks installed? "
                 "Try `interlock doctor`.")
     lines = [f"Interlock report: last {r.days} days", "",
@@ -102,6 +127,9 @@ def format_report(r: Report) -> str:
         lines.append(f"  {r.unjudged} decisions were partly unjudged (a detector was unavailable)")
     if r.rules:
         lines += ["", "Top rules:"] + [f"  {n:>4}  {rule}" for rule, n in r.rules.most_common(8)]
+    if r.gateway_hidden or r.gateway_pinned:
+        lines += ["", f"MCP gateway: {r.gateway_pinned} tool definitions pinned; hidden from the agent:"]
+        lines += [f"  {h}" for h in r.gateway_hidden[:10]] or ["  none"]
     if r.examples:
         lines += ["", "Recent stops:"] + [
             f"  {e['at']}  {e['disposition']:<8}{' (shadow)' if e['mode'] == 'shadow' else '         '} {e['tool']:<10} {e['detail']}"
@@ -229,6 +257,18 @@ def run_doctor(home: Path, listen: str, workspace_root: str | None = None) -> li
                              f"run `interlock init --yes --harness {d.name}`", warn=True))
     if not hooked:
         out.append(Check(False, "hooks", "no Interlock hooks found in any harness", "run `interlock init`"))
+
+    try:
+        from . import gateway
+
+        rows = [c for c in gateway.status() if c.action in ("wrapped", "unwrapped")]   # coverable stdio servers
+        bare = [f"{c.agent}/{c.server}" for c in rows if c.action == "unwrapped"]
+        if rows:
+            out.append(Check(True, "mcp gateway", (f"{len(rows) - len(bare)} of {len(rows)} stdio MCP servers go through the gateway"
+                                                  + (f"; not: {', '.join(bare[:5])}" if bare else "")),
+                             "interlock gateway wrap" if bare else "", warn=bool(bare)))
+    except Exception as e:  # noqa: BLE001  a config we can't parse must not break doctor
+        out.append(Check(True, "mcp gateway", f"could not read MCP configs ({type(e).__name__})", warn=True))
 
     log = home / "hook.log"
     if log.exists():

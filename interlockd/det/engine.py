@@ -14,6 +14,7 @@ from ..tiers import (
     TierResult,
 )
 from . import DetResult
+from .mcp import check_mcp_policy
 from .packs import (
     R_EGRESS_SHARE,
     R_EGRESS_UNKNOWN,
@@ -71,6 +72,8 @@ def evaluate(event: InterlockEvent, policy: Policy, tier: TierResult) -> DetResu
         res.harm = harm_for(res)
         return res
 
+    if tier.action_class == "mcp" or event.context.mcp_server:
+        check_mcp_policy(event, res, policy)
     # MCP tools that run commands (terminal / shell servers) get the same shell analysis as the agent's own shell;
     # only explicit command keys count, since a generic `args` list means something else on most MCP tools
     mcp_cmd = next((args[k] for k in ("command", "cmd", "script", "commandLine")

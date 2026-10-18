@@ -54,6 +54,30 @@ class Packs(Strict):
     overrides: dict[str, RuleOverride] = Field(default_factory=dict)
 
 
+class McpPolicy(Strict):
+    """Per MCP server / tool actions. Keys are `server/tool` glob patterns (`github/*`, `*/delete_*`, `github`);
+    the most specific match wins (a tool-level pattern beats a server-wide one, exact beats glob, longer beats
+    shorter). `default` applies when nothing matches."""
+    tools: dict[str, Literal["allow", "ask", "block"]] = Field(default_factory=dict)
+    default: Literal["allow", "ask", "block"] = "allow"
+
+
+class FlowPolicy(Strict):
+    """Toxic-flow detection (det/flow.py): private data + untrusted content + an exfiltration-capable call in one session.
+    Source and sink patterns are `server/tool` globs over MCP tools; built-in tools are classified by the engine."""
+    enabled: bool = True
+    action: Literal["block", "ask", "flag"] = "ask"
+    private_sources: list[str] = Field(default_factory=lambda: [
+        "*mail*/*", "*gmail*/*", "*drive*/*", "*postgres*/*", "*mysql*/*", "*sql*/query*", "*notion*/*", "*slack*/read*",
+        "*/get_secret*", "*secrets*/*", "*vault*/*"])
+    untrusted_sources: list[str] = Field(default_factory=lambda: [
+        "*fetch*/*", "*browser*/*", "*puppeteer*/*", "*playwright*/*", "*search*/*", "*web*/*", "*/fetch*", "*/scrape*",
+        "github/get_issue*", "github/list_issues*", "github/get_pull_request*", "*/read_email*", "*mail*/get*"])
+    sinks: list[str] = Field(default_factory=lambda: [
+        "*/send*", "*/post*", "*/create*", "*/upload*", "*/comment*", "*/reply*", "*/email*", "*/message*", "*/push*",
+        "*/publish*", "*/share*", "*/write*", "*/update*", "*fetch*/*"])
+
+
 class Mandate(Strict):
     cedar: str | None = None                  # path to a .cedar file, relative to the policy file
     mode: Literal["off", "log_only", "enforce"] = "off"
@@ -133,6 +157,8 @@ class Policy(Strict):
     profile: Literal["laptop", "team"] = "laptop"
     trust: Trust = Field(default_factory=Trust)
     packs: Packs = Field(default_factory=Packs)
+    mcp: McpPolicy = Field(default_factory=McpPolicy)
+    flow: FlowPolicy = Field(default_factory=FlowPolicy)
     mandate: Mandate = Field(default_factory=Mandate)
     denial_budget: DenialBudget = Field(default_factory=DenialBudget)
     judge: Judge = Field(default_factory=Judge)

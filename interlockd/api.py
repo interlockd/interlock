@@ -12,6 +12,7 @@ OGR conformance (design §5.2), served at the bare /v1 prefix the spec uses:
   GET  /v1/limits                           bearer
   POST /v1/evaluate                         bearer   GuardEvent -> OGR Verdict
   POST /v1/heartbeat                        bearer
+  GET|POST|DELETE /mcp/<name>/<secret>      route secret   MCP gateway for remote servers (mcp_http.py)
   GET  /v1/rules                            404      (optional per spec; not implemented)
 """
 
@@ -113,7 +114,20 @@ class ApiServer:
                     return None
 
             # -- routes
+            def _mcp(self, method: str) -> bool:
+                if not self.path.startswith("/mcp/"):
+                    return False
+                from .mcp_http import handle
+
+                return handle(self, server.daemon, method)
+
+            def do_DELETE(self) -> None:
+                if not self._mcp("DELETE"):
+                    self._send(404, {"error": "not found"})
+
             def do_GET(self) -> None:
+                if self._mcp("GET"):
+                    return
                 u = urlparse(self.path)
                 if u.path == "/interlock/v1/health":
                     s = server.daemon.settings
@@ -155,6 +169,8 @@ class ApiServer:
                 self._send(404, {"error": "not found"})
 
             def do_POST(self) -> None:
+                if self._mcp("POST"):
+                    return
                 u = urlparse(self.path)
                 if u.path in ("/v1/evaluate", "/v1/heartbeat"):  # OGR conformance seat (design §5.2)
                     if not self._authed():

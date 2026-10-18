@@ -15,6 +15,8 @@ from . import __version__
 from .compose import compose
 from .config import Settings
 from .det.engine import evaluate as det_evaluate
+from .det.flow import check as flow_check
+from .det.flow import observe as flow_observe
 from .det.mandate import evaluate_mandate
 from .ids import ulid
 from .judges import QUESTIONS_V1, QUESTIONS_VERSION, BackendError
@@ -296,6 +298,7 @@ class Daemon:
         else:
             # tier 1 runs the secrets and persistence packs on the content; tier 2 runs everything the policy enables
             det = det_evaluate(event, pol, tier)
+            flow_check(event, det, session, pol)
             mandate = evaluate_mandate(pol, det, agent_id=event.identity.agent_id, workspace=event.identity.agent_workspace,
                                        session_counters=session.get("counters", {}))
             composed = compose(det, mandate, pol, session=session, kind="pre_action")
@@ -334,6 +337,7 @@ class Daemon:
             timing_ms={},
         )
         self.ledger.record_disposition(event.session_hint, disposition if self.mode == "enforce" else "allow")
+        flow_observe(event, session, pol, findings)
 
         t_dec = time.perf_counter()
         verdict.timing_ms = {
