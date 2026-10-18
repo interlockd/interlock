@@ -38,8 +38,13 @@ jobs:
           .venv/bin/pytest -q tests/test_sandbox.py -rs
       - name: Framework integrations (Strands, LangChain) against a real daemon
         run: |
-          uv pip install --python .venv/bin/python strands-agents langchain-core openai-agents
-          .venv/bin/pytest -q tests/test_strands.py tests/test_langchain.py tests/test_openai_agents.py
+          uv pip install --python .venv/bin/python strands-agents langchain-core openai-agents google-adk
+          .venv/bin/pytest -q tests/test_strands.py tests/test_langchain.py tests/test_openai_agents.py tests/test_google_adk.py
+      - name: CrewAI integration (own environment)
+        run: |
+          uv venv /tmp/crewai --python 3.12
+          uv pip install --python /tmp/crewai/bin/python -e ".[dev]" crewai
+          /tmp/crewai/bin/pytest -q tests/test_crewai.py
       - name: Wheel smoke test
         run: |
           uv build --wheel -o dist

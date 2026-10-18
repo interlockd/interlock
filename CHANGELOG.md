@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1 (unreleased)
+
+- Google ADK and CrewAI integrations.
+- `interlock pause` / `resume` kill switch.
+- Linux sandbox (bubblewrap) verified in CI.
+
 ## 0.1.0 (2026-10-17)
 
 First public release.
