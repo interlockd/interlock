@@ -1,4 +1,5 @@
 import json
+import os
 import statistics
 import time
 import urllib.error
@@ -83,7 +84,9 @@ def test_tier0_latency_budget(server):
     samples.sort()
     p50, p95 = statistics.median(samples), samples[int(len(samples) * 0.95) - 1]
     print(f"\ntier-0 HTTP round trip: p50={p50:.2f} ms p95={p95:.2f} ms max={samples[-1]:.2f} ms")
-    assert p95 < 60
+    assert p50 < 20
+    # shared CI runners have fsync stalls of 100+ ms that say nothing about Interlock; there, only catch gross regressions
+    assert p95 < (500 if os.environ.get("CI") else 60)
 
 
 def test_text_format_for_shell_shims(server):
