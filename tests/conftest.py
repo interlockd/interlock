@@ -56,3 +56,9 @@ def settings(home: Path, kiro_sessions: Path) -> Settings:
 @pytest.fixture
 def daemon(settings: Settings) -> Daemon:
     return Daemon(settings, spool=Spool(settings.spool_dir), repo=MemoryRepository())
+
+
+@pytest.fixture(autouse=True)
+def _no_update_check(monkeypatch):
+    """Tests never call PyPI."""
+    monkeypatch.setenv("INTERLOCK_NO_UPDATE_CHECK", "1")

@@ -1285,8 +1285,8 @@ def cmd_init(args) -> int:
     if mode == "shadow":
         print("  interlock enforce     start blocking when you're ready")
     print("  interlock uninstall   remove everything")
-    for d in skipped:
-        if d.note and d.name not in {c.name for c in chosen}:
+    for d in skipped:   # an agent that is here but needs a manual step (Kiro: hooks are per workspace)
+        if d.note and not d.target and (wanted is None or d.name in wanted):
             print(f"\n{d.name}: {d.note}")
     return 0
 
@@ -1737,6 +1737,23 @@ def cmd_pause(args) -> int:
     return 0
 
 
+def cmd_bench(args) -> int:
+    import platform
+
+    from .bench import format_results, run
+
+    r = run(rounds=args.rounds)
+    print(f"interlock {__version__} on {platform.system()} {platform.machine()}, Python {platform.python_version()}\n")
+    print(format_results(r))
+    if "floor" in r and "shim (unix)" in r:
+        extra = r["shim (unix)"]["p50"] - r["floor"]["p50"]
+        print(f"\n  the shim costs {extra:+.1f} ms over a bare sh + curl at p50; Interlock's own share is the http row"
+              f" ({r['http']['p50']} ms), the rest is process spawn on this machine")
+    if args.json:
+        Path(args.json).write_text(json.dumps(r, indent=2))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="interlock", description="Interlock: a pre/post-action interlock for coding agents")
     ap.add_argument("--home", help="Interlock home (default ~/.interlock or $INTERLOCK_HOME)")
@@ -1841,6 +1858,10 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--minutes", type=float, help="resume automatically after this long"); p.add_argument("--reason")
     p.set_defaults(fn=cmd_pause)
     p = sub.add_parser("resume", help="lift `interlock pause`"); p.set_defaults(fn=cmd_pause)
+
+    p = sub.add_parser("bench", help="measure decision latency on this machine (temporary daemon; real shim)")
+    p.add_argument("--rounds", type=int, default=3); p.add_argument("--json")
+    p.set_defaults(fn=cmd_bench)
 
     p = sub.add_parser("serve", help="run the daemon in the foreground"); p.add_argument("--listen"); p.add_argument("--mode", choices=["shadow", "enforce"])
     p.set_defaults(fn=cmd_serve)

@@ -196,6 +196,30 @@ def _has_interlock_hook(f: Path, home: Path) -> str | None:
     return None
 
 
+def latest_release(timeout: float = 2.0) -> str | None:
+    """The newest interlockd on PyPI, or None (offline, slow, or INTERLOCK_NO_UPDATE_CHECK set)."""
+    if os.environ.get("INTERLOCK_NO_UPDATE_CHECK"):
+        return None
+    try:
+        with urllib.request.urlopen("https://pypi.org/pypi/interlockd/json", timeout=timeout) as r:
+            return json.loads(r.read())["info"]["version"]
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _newer(a: str, b: str) -> bool:
+    import re
+
+    def key(v: str) -> tuple:
+        nums = [int(x) for x in re.findall(r"\d+", v.split("+")[0])[:3]]
+        pre = bool(re.search(r"[a-z]", v.split("+")[0]))
+        return (*nums, 0 if pre else 1)
+    try:
+        return key(a) > key(b)
+    except ValueError:
+        return False
+
+
 def run_doctor(home: Path, listen: str, workspace_root: str | None = None) -> list[Check]:
     from .onboard import Manifest, detect
     from .policy import load_policy
@@ -272,6 +296,10 @@ def run_doctor(home: Path, listen: str, workspace_root: str | None = None) -> li
     if not hooked:
         out.append(Check(False, "hooks", "no Interlock hooks found in any harness", "run `interlock init`"))
 
+    latest = latest_release()
+    if latest and _newer(latest, __version__):
+        out.append(Check(True, "version", f"interlockd {latest} is available (you have {__version__})",
+                         "pipx upgrade interlockd   (or: uv tool upgrade interlockd)", warn=True))
     from .control import PauseState
 
     ps = PauseState(home).current()

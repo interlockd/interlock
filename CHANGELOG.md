@@ -5,6 +5,10 @@
 - Google ADK and CrewAI integrations.
 - `interlock pause` / `resume` kill switch.
 - Linux sandbox (bubblewrap) verified in CI.
+- `interlock bench`: decision, probe, HTTP and hook-shim latency on your machine; see `docs/PERFORMANCE.md`.
+- Faster audit writes: the hash chain's head is cached between appends instead of re-read; decision p50 4.2 ms -> 1.2 ms.
+- `interlock doctor` reports when a newer release is on PyPI (`INTERLOCK_NO_UPDATE_CHECK=1` turns it off).
+- Docs: the hooks apply `fail_mode.default` while the daemon is down (the per-category entries had been described as applying too).
 
 ## 0.1.0 (2026-10-17)
 

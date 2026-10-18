@@ -18,7 +18,7 @@ This guide covers what Interlock does today and how to run it. It grows with the
 
 **Records everything.** Every decision is written to a local spool the moment it is made (durable before the verdict is returned), then drained in the background to DynamoDB. The record carries the tool call, the findings, the disposition, the policy hash, timing, and the session and turn it belonged to, so any verdict can be explained and replayed later.
 
-**Fails the way you choose.** If the daemon is unreachable, each harness hook applies a local fail mode: `open` (the tool runs, the miss is logged to `~/.interlock/hook.log`) or `closed` (the tool is refused until the daemon is back). The default is open for everything except the dangerous categories (exfiltration, malicious commands, persistence, secret leaks, privilege escalation), which are closed.
+**Fails the way you choose.** If the daemon is unreachable, each harness hook applies a local fail mode: `open` (the tool runs, the miss is logged to `~/.interlock/hook.log`) or `closed` (the tool is refused until the daemon is back). The default is open. Without the daemon the hook cannot classify the call, so it applies the `default` entry of the fail-mode table; set `default: closed` to refuse every tool call while the daemon is down. The per-category entries are reserved for a future local classifier and have no effect today.
 
 ### How a decision is made
 
@@ -186,7 +186,7 @@ mandate:
 
 denial_budget: { consecutive: 3, total: 20, then: ask }
 
-fail_mode:                                    # applied by the hooks when the daemon does not answer
+fail_mode:                                    # when the daemon does not answer, the hooks apply `default`
   security.data_exfiltration: closed
   security.malicious_command: closed
   security.persistence: closed

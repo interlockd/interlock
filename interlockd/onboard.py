@@ -103,7 +103,7 @@ def detect(cwd: Path | None = None) -> list[Detected]:
     cursor = shutil.which("cursor") or shutil.which("cursor-agent")
     out.append(Detected("cursor", bool(cursor or (home / ".cursor").is_dir()), why=cursor or str(home / ".cursor"),
                         target=home / ".cursor" / "hooks.json",
-                        note="Cursor 1.7+ runs hooks; this adapter is built from Cursor's docs, not yet verified live"))
+                        note="Cursor 1.7+ runs hooks; shell output is checked and recorded but can't be withheld, and Read results carry no content"))
     gemini = shutil.which("gemini")
     out.append(Detected("gemini-cli", bool(gemini or (home / ".gemini").is_dir()), why=gemini or str(home / ".gemini"),
                         target=home / ".gemini" / "settings.json",
@@ -111,7 +111,7 @@ def detect(cwd: Path | None = None) -> list[Detected]:
     built = "built from its documented hooks, not yet verified live"
     copilot = shutil.which("copilot")
     out.append(Detected("copilot-cli", bool(copilot or (home / ".copilot").is_dir()), why=copilot or str(home / ".copilot"),
-                        target=home / ".copilot" / "hooks" / "interlock.json", note=f"GitHub Copilot CLI: {built}"))
+                        target=home / ".copilot" / "hooks" / "interlock.json"))
     windsurf = shutil.which("windsurf")
     out.append(Detected("windsurf", bool(windsurf or (home / ".codeium" / "windsurf").is_dir()),
                         why=windsurf or str(home / ".codeium" / "windsurf"), target=home / ".codeium" / "windsurf" / "hooks.json",

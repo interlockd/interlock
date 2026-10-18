@@ -1,6 +1,6 @@
 [project]
 name = "interlockd"
-version = "0.1.0"
+version = "0.1.1"
 description = "Interlock daemon: a pre/post-action interlock for coding agents"
 readme = "README.md"
 requires-python = ">=3.12"

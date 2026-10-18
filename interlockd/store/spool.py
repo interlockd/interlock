@@ -29,6 +29,7 @@ class Spool:
         self.dir.mkdir(parents=True, exist_ok=True)
         self.fsync = fsync
         self._lock = threading.Lock()
+        self._tail: tuple[Path, int, str] | None = None   # (segment, size after our last write, its hash)
 
     def _segment(self, received_at: str | None = None) -> Path:
         day = (received_at or datetime.now(UTC).isoformat())[:10]
@@ -41,7 +42,7 @@ class Spool:
             try:
                 fcntl.flock(lock_fd, fcntl.LOCK_EX)         # one chain even with several writers on this spool
                 rec = {k: v for k, v in record.items() if k not in ("hash", "prev_hash")}
-                rec["prev_hash"] = self.head()
+                rec["prev_hash"] = self._cached_head(seg)
                 rec["hash"] = record_hash(rec)
                 line = json.dumps(rec, separators=(",", ":"), ensure_ascii=False) + "\n"
                 fd = os.open(seg, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
@@ -49,11 +50,23 @@ class Spool:
                     os.write(fd, line.encode("utf-8"))
                     if self.fsync:
                         os.fsync(fd)
+                    self._tail = (seg, os.fstat(fd).st_size, rec["hash"])
                 finally:
                     os.close(fd)
             finally:
                 fcntl.flock(lock_fd, fcntl.LOCK_UN)
                 os.close(lock_fd)
+
+    def _cached_head(self, seg: Path) -> str:
+        """The head without re-reading the file, when nothing else has written to it since our last append (another
+        writer changes the size; a new day changes the segment). Called under the spool lock."""
+        if self._tail and self._tail[0] == seg:
+            try:
+                if seg.stat().st_size == self._tail[1]:
+                    return self._tail[2]
+            except OSError:
+                pass
+        return self.head()
 
     def head(self) -> str:
         """Hash of the newest chained record ("genesis" for an empty or legacy-only spool)."""
@@ -146,13 +159,19 @@ def record_hash(rec_without_hash: dict[str, Any]) -> str:
 
 
 def _last_line(path: Path) -> str | None:
+    """The last non-blank line, reading backwards from the end in growing blocks."""
     with open(path, "rb") as f:
-        f.seek(0, os.SEEK_END)
-        size = f.tell()
-        block = min(size, 1 << 20)
-        f.seek(size - block)
-        lines = [ln for ln in f.read().splitlines() if ln.strip()]
-        return lines[-1].decode("utf-8") if lines else None
+        size = f.seek(0, os.SEEK_END)
+        block = 1 << 16
+        while True:
+            start = max(0, size - block)
+            f.seek(start)
+            data = f.read(size - start).rstrip(b"\r\n \t")
+            cut = data.rfind(b"\n")
+            if cut >= 0 or start == 0:
+                last = data[cut + 1:].strip()
+                return last.decode("utf-8") if last else None
+            block *= 4
 
 
 def _broken(seg: Path, line: int, reason: str, n: int, legacy: int) -> dict[str, Any]:

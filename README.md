@@ -12,6 +12,8 @@ pipx install interlockd     # or: uv tool install interlockd
 interlock init              # finds your agents, installs hooks, starts the daemon (shadow mode)
 ```
 
+New here? [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md) walks through shadow mode, enforcing, MCP servers, your own agents and CI in about ten minutes.
+
 ```
 What the gate decides (enforce mode, nothing executed):
   block  git push --force origin main                         force-push to a protected branch
@@ -32,13 +34,13 @@ What the gate decides (enforce mode, nothing executed):
 | GitHub Copilot CLI | ✅ verified live: blocks before execution, withholds injected tool results |
 | Gemini CLI, Windsurf, Antigravity CLI, OpenCode | built from their documented hooks/plugins; live verification in progress |
 | Your own agents (Strands, LangChain / LangGraph, OpenAI Agents SDK, Google ADK, CrewAI) | ✅ in-process: `InterlockHooks()`, `guard_tools(tools)`, `guard_agent_tools(agent)`, `guard_agent(agent)`, `crewai.install()` |
-| Any MCP client | ✅ the MCP gateway (`interlock gateway wrap`) gates every stdio MCP server, hooks or not |
-| Windsurf, Cline, GitHub Copilot, and more | hook adapters planned |
+| Any MCP client | ✅ the MCP gateway (`interlock gateway wrap`) gates every stdio and remote (HTTP) MCP server, hooks or not |
+| Cline, Copilot in VS Code, and more | hook adapters planned; meanwhile the MCP gateway and `interlock sandbox` cover them |
 
 ## How it works
 
 1. **Hooks.** `interlock init` adds a small hook to each agent you have installed. The hook forwards each proposed tool call (and each tool result) to a local daemon.
-2. **Deterministic rules first.** 48 rules in 6 packs (shell, git, egress, persistence, secrets, packages) decide in about 2 ms. The shell decomposer sees through chains, pipes, subshells, heredocs, interpreter one-liners and base64.
+2. **Deterministic rules first.** 48 rules in 6 packs (shell, git, egress, persistence, secrets, packages) decide in about a millisecond ([measured](docs/PERFORMANCE.md)). The shell decomposer sees through chains, pipes, subshells, heredocs, interpreter one-liners and base64.
 3. **Injection probe on results.** A local detector flags tool output that tries to instruct the agent (including text hidden in HTML comments or invisible Unicode) and withholds it where the agent supports that.
 4. **Optional judge.** An open-weights decision model can answer "did the user actually ask for this?" for ambiguous actions. Off by default.
 5. **Everything recorded.** Every decision lands in a local append-only log with its reason.
@@ -68,7 +70,7 @@ Policy lives in `~/.interlock/policy.yaml` (user) and `<repo>/.interlock/policy.
 
 ## Honest limits
 
-The full threat model is in [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md).
+The full threat model is in [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md). Latency on your own machine: `interlock bench` ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)).
 
 
 - Interlock sees what the agent's hooks show it. A process the agent starts outside the hook path, or a second unguarded agent, is not gated. Network and sandbox enforcement are on the roadmap.

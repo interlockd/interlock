@@ -132,3 +132,12 @@ def test_replay_shows_policy_changes(tmp_path, monkeypatch, capsys):
     assert "replayed 2" in out and "1 decision(s) would change: 1 newly stopped" in out and "allow -> block" in out
     (tmp_path / "policy.yaml").write_text("packs:\n  overrides:\n    git.force_push_protected_branch: { action: allow }\n")
     assert main(["replay"]) == 0 and "no decision would change" in capsys.readouterr().out
+
+
+def test_version_compare_and_opt_out(monkeypatch):
+    from interlockd.insights import _newer, latest_release
+
+    assert _newer("0.1.1", "0.1.0") and _newer("0.2.0", "0.1.9") and _newer("0.1.0", "0.1.0a0")
+    assert not _newer("0.1.0", "0.1.0") and not _newer("0.1.0a0", "0.1.0")
+    monkeypatch.setenv("INTERLOCK_NO_UPDATE_CHECK", "1")
+    assert latest_release() is None
