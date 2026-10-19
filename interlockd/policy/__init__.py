@@ -55,12 +55,19 @@ class Packs(Strict):
     overrides: dict[str, RuleOverride] = Field(default_factory=dict)
 
 
+class OAuthPolicy(Strict):
+    """OAuth checks on remote MCP servers behind the HTTP gateway (det/oauth.py)."""
+    deny_scopes: list[str] = Field(default_factory=list)   # globs, e.g. ["admin:*", "delete_repo", "*.write.all"]
+    pin_authorization_servers: bool = True                  # record a server's authorization servers on first use
+
+
 class McpPolicy(Strict):
     """Per MCP server / tool actions. Keys are `server/tool` glob patterns (`github/*`, `*/delete_*`, `github`);
     the most specific match wins (a tool-level pattern beats a server-wide one, exact beats glob, longer beats
     shorter). `default` applies when nothing matches."""
     tools: dict[str, Literal["allow", "ask", "block"]] = Field(default_factory=dict)
     default: Literal["allow", "ask", "block"] = "allow"
+    oauth: OAuthPolicy = Field(default_factory=OAuthPolicy)
 
 
 class FlowPolicy(Strict):

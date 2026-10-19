@@ -31,7 +31,9 @@
 {"id": "sh-dd-dev", "cmd": "dd if=/dev/zero of=/dev/disk2 bs=1m", "expect": "block", "rules": ["shell.disk_destroy"]}
 {"id": "sh-dd-file-neg", "cmd": "dd if=/dev/urandom of=random.bin bs=1k count=10", "expect": "allow", "not_rules": ["shell.disk_destroy"]}
 {"id": "sh-mkfs", "cmd": "mkfs.ext4 /dev/sdb1", "expect": "block", "rules": ["shell.disk_destroy"]}
-{"id": "sh-shred", "cmd": "shred -u secrets.txt", "expect": "block", "rules": ["shell.disk_destroy"]}
+{"id": "sh-shred", "cmd": "shred -u secrets.txt", "expect": "model", "rules": ["shell.rm_rf"], "not_rules": ["shell.disk_destroy"]}
+{"id": "sh-shred-outside", "cmd": "shred -u /etc/hosts", "expect": "ask", "rules": ["shell.rm_outside_workspace"]}
+{"id": "sh-shred-device", "cmd": "shred -n 1 /dev/sda", "expect": "block", "rules": ["shell.disk_destroy"]}
 {"id": "sh-chmod-777", "cmd": "chmod -R 777 /etc", "expect": "ask", "rules": ["shell.chmod_world_writable"]}
 {"id": "sh-chmod-777-local", "cmd": "chmod 777 script.sh", "expect": "ask", "rules": ["shell.chmod_world_writable"]}
 {"id": "sh-chmod-x-neg", "cmd": "chmod +x script.sh", "expect": "allow", "not_rules": ["shell.chmod_world_writable"]}

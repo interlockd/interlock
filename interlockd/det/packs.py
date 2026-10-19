@@ -198,7 +198,12 @@ def check_shell(parsed: Parsed, res: DetResult, policy: Policy, cwd: str | None)
                     res.add(policy, R_RM_RF, path=PATH_ARG, subject=seg.raw[:120])
             res.action_class = "destructive"
         disk_tool = cmd in ("dd", "mkfs", "shred", "wipefs", "diskutil") or cmd.startswith("mkfs.")
-        if disk_tool and (cmd != "dd" or any(t.startswith("of=/dev/") for t in w[1:])):
+        if cmd == "shred" and not any(t.startswith("/dev/") for t in _targets(w)):
+            # shredding files is an irreversible delete, like rm -rf, not a disk wipe
+            outside = [t for t in _targets(w) if not is_under(normalize_path(t, cwd), roots)] if roots else []
+            res.add(policy, R_RM_OUTSIDE if outside else R_RM_RF, path=PATH_ARG, subject=seg.raw[:120])
+            res.action_class = "destructive"
+        elif disk_tool and (cmd != "dd" or any(t.startswith("of=/dev/") for t in w[1:])):
             res.add(policy, R_DD_MKFS, path=PATH_ARG, subject=seg.raw[:120])
         if cmd == "chmod" and any(re.fullmatch(r"-?R?\s*0?[67]77", x) or x == "a+rwx" for x in w[1:]):
             res.add(policy, R_CHMOD_WORLD, path=PATH_ARG, subject=seg.raw[:120])

@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- `interlock judge install | status | remove`: run the optional judge model (Strands Decider 2B) locally in one step. The daemon starts it in the background instead of delaying startup.
+- Contributing: pull requests are imported into the development repository with author credit (`CONTRIBUTING.md`); a code of conduct; `demo/demo.sh` (and a VHS tape) for a self-contained recording.
+- `@interlockd/sdk` for JavaScript and TypeScript agents (`sdk/js`, no dependencies): `guardTools` for the Vercel AI SDK, Mastra and any `{ execute }` tool map, and `guardOptions` for the Claude Agent SDK for TypeScript. Both verified with the real packages.
+- Injection detector, measured on public benchmarks (`docs/BENCHMARKS.md`, scripts in `benchmarks/`): catches AgentDojo's leaderboard template (0% -> 100%), InjecAgent's enhanced attacks (37% -> 97% on the harm set), typo'd "ignore your previous ..." and `###(system_message)` markers. False positives on real documentation fell from 2.2% to 0.25% ("bypass the X policy" and "silently skipped" no longer count).
+- `shred <file>` is an irreversible delete (asked or recorded like `rm -rf`), no longer blocked as a disk wipe; `shred /dev/...` still is.
+- Releases carry signed build provenance (`gh attestation verify`), and the release workflow regenerates the Homebrew formula and commits it to `interlockd/homebrew-tap` when a tap token is configured.
+- `interlock capture`: record the real hook payloads an agent sends (with Interlock's replies), check that blocks held, and export redacted fixtures. `--scratch` sets up a verification project. Verified live with Claude Code.
+- Cedar mandate: shell egress (`curl`, `wget`, ...) now binds to `net.egress` with its hosts, like fetch tools (it was reported unjudged). With `mandate.mode: enforce`, a mandate without a `net.egress` permit now refuses shell egress; `docs/mandate-example.cedar` shows a host allowlist. Enforce mode verified live through the hook shim.
+- MCP OAuth checks in the HTTP gateway: a JWT issued for another service is never passed to an MCP server (audience binding), scopes in `mcp.oauth.deny_scopes` are refused, administrative scopes are flagged, and each server's authorization servers are pinned on first use so a change is refused until `interlock mcp-pins --accept`.
+
 ## 0.1.1 (2026-10-18)
 
 - Google ADK and CrewAI integrations.

@@ -59,9 +59,15 @@ Copy `interlockd/shims/claude-code/interlock-hook.sh` as a template. It must:
 
 Documented hook contracts have been wrong in practice: Claude Code ignores a documented placement of `updatedToolOutput`, and a bare string there is silently dropped. So:
 
-1. Install a capture hook that tees stdin to a file and forwards to the shim (see `adapters/claude-code/PAYLOADS.md` for the method).
-2. Drive the real tool headless with one benign call, one call a default rule blocks, and one tool result carrying an injection.
-3. Save the redacted payloads to `tests/fixtures/<harness>/{pre,post}-<tool>-{benign,block,inject}.json`. `test_live_captured_payloads` replays every fixture through the API and checks the rendered reply.
+1. Install the hooks (`interlock init --harness <agent>`) and turn on capture with a scratch project:
+
+   ```sh
+   interlock capture start --harness <agent> --scratch ~/il-verify
+   ```
+
+   The scratch project has a README carrying an injection and a repository policy in enforce mode, so blocking can be tested there without changing your own mode.
+2. Open the agent in `~/il-verify` and give it the three prompts `capture start` prints: a call a default rule blocks, a read of the injected README, and a benign command.
+3. `interlock capture report` lists the events and keys that arrived. For each refused call it says whether the block held (the agent never reported a result for it). Then `interlock capture export tests/fixtures/<agent>` writes the payloads with your home path, user name and emails redacted; review them. `test_live_captured_payloads` replays every fixture through the API and checks the rendered reply. `interlock capture stop` ends capture, and it also ends by itself after `--minutes` (default 30).
 4. Write `adapters/<harness>/PAYLOADS.md`: version measured, input keys per event, the output forms you verified, and anything that differed from the docs.
 
 An adapter is **verified** only when block (and withhold, if claimed) has been observed working in the real tool. Until then it is **built**, and docs and `interlock init` say so.

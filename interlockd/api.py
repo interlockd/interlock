@@ -28,7 +28,7 @@ from urllib.parse import parse_qs, urlparse
 
 from pydantic import ValidationError
 
-from . import __version__
+from . import __version__, capture
 from .auth import check_bearer
 from .config import MAX_REQUEST_BYTES
 from .models import InterlockEvent
@@ -279,8 +279,18 @@ class ApiServer:
                     self._send(500, {"error": f"decide failed: {type(e).__name__}"})
                     return
                 fmt = parse_qs(u.query).get("format", [""])[0]
+                harness = u.path.rsplit("/", 1)[-1] if u.path.startswith("/interlock/v1/hooks/") else event.adapter.name
+                home = server.daemon.settings.home
+                if not capture.active(home, harness):
+                    harness = None
+
+                def captured(reply):
+                    if harness:
+                        capture.record(home, harness, body, event, verdict, reply)
+
                 if fmt == "text":
                     data = render_text(verdict).encode()
+                    captured(data)
                     self.send_response(200)
                     self.send_header("Content-Type", "text/plain; charset=utf-8")
                     self.send_header("Content-Length", str(len(data)))
@@ -297,12 +307,14 @@ class ApiServer:
                     extra = {"harness": u.path.rsplit("/", 1)[-1]} if fmt == "claude-code" else {}
                     out = renderer(verdict, kind=event.kind, tool_response=raw, **extra)
                     data = json.dumps(out, separators=(",", ":")).encode() if out else b""
+                    captured(data)
                     self.send_response(200)
                     self.send_header("Content-Type", "application/json")
                     self.send_header("Content-Length", str(len(data)))
                     self.end_headers()
                     self.wfile.write(data)
                     return
+                captured(json.dumps(verdict.model_dump(), default=str))
                 self._send(200, verdict.model_dump())
 
         return Handler

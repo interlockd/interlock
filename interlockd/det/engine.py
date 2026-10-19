@@ -13,7 +13,7 @@ from ..tiers import (
     SHELL_TOOLS,
     TierResult,
 )
-from . import DetResult
+from . import DetResult, oauth
 from .mcp import check_mcp_policy
 from .packs import (
     R_EGRESS_SHARE,
@@ -72,6 +72,11 @@ def evaluate(event: InterlockEvent, policy: Policy, tier: TierResult) -> DetResu
         res.harm = harm_for(res)
         return res
 
+    if name == oauth.TOOL and (event.context.mcp_server or {}).get("source") == "mcp-http":
+        oauth.check(args, res, policy)                 # the HTTP gateway's OAuth observations (det/oauth.py)
+        res.action_class = "mcp_auth"
+        res.harm = harm_for(res)
+        return res
     if tier.action_class == "mcp" or event.context.mcp_server:
         check_mcp_policy(event, res, policy)
     # MCP and unrecognized tools that run commands (terminal servers, SDK tools named run_command / exec / terminal)

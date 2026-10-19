@@ -14,7 +14,7 @@ This guide covers what Interlock does today and how to run it. It grows with the
 | `ask` | The tool does not run until the user confirms. On harnesses with a native confirmation prompt (Claude Code) the prompt appears; on harnesses without one (Kiro) the agent receives a notice telling it to ask the user and retry only after confirmation. |
 | `block` | The tool does not run. The agent receives a notice saying what was refused, that it did not execute, what it may do instead, and that it must not retry in a disguised form. The session continues. |
 
-**Probes tool results.** After a tool runs, its output can be checked before the agent acts on it. Today this finds credentials in output (`pass` / `warn`); injected-instruction detection arrives with the judge (M2).
+**Probes tool results.** After a tool runs, its output is checked before the agent reads it: credentials in output, and instructions addressed to the agent (the local injection detector, on by default; the judge adds a second opinion when installed).
 
 **Records everything.** Every decision is written to a local spool the moment it is made (durable before the verdict is returned), then drained in the background to DynamoDB. The record carries the tool call, the findings, the disposition, the policy hash, timing, and the session and turn it belonged to, so any verdict can be explained and replayed later.
 
@@ -26,7 +26,7 @@ This guide covers what Interlock does today and how to run it. It grows with the
 2. **Deterministic packs.** Gated calls are decomposed (shell chains, pipes, subshells, interpreter one-liners, heredocs, base64 payloads; commit messages and echoed text are treated as data) and checked by six rule packs: shell, git, egress, persistence, secrets, packages. Each rule has a category, a severity, and a default action your policy can override. Rules never guess: a command that cannot be judged (no package manifest to compare against, a mandate action with no binding) is reported as unjudged, not silently allowed.
 3. **Mandate.** An optional Cedar policy expresses what the agent is authorized to do (which remotes, which branches, which capabilities, how many destructive operations per session). Denials become findings.
 4. **Composition.** The strongest action wins (`block` > `ask` > `model` > `flag` > `allow`). A denial budget escalates to the user after 3 consecutive or 20 total denials in a session.
-5. **Judge.** Rules routed to `model` are decided by a decision model (Strands Decider 2B) answering "did the user authorize this action?" when a judge backend is configured; without one they are recorded as unjudged.
+5. **Judge.** Rules routed to `model` are decided by a decision model (Strands Decider 2B, open weights) answering "did the user authorize this action?" when a judge backend is configured; without one they are recorded as unjudged. `interlock judge install` sets it up on this machine in one step (a private environment in `~/.interlock/judge`, about 5 GB of weights, and `judge.primary` in your policy); the daemon then starts and supervises it, in the background, and `interlock judge status` / `interlock judge remove` do what they say.
 6. **Post-action probe.** Tool results are checked for instructions addressed to the agent. The **local probe** (heuristics, plus an optional classifier such as PromptGuard 2) is on by default and needs no AWS or network. Amazon Bedrock Guardrails (`judge.probe.enabled`) and the judge's `injection_present` are optional extra detectors. All detectors compose deny-wins: the strongest signal sets `warn` or `withhold`.
 
 ### Shadow and enforce
@@ -69,7 +69,7 @@ Writes are refused to shell startup files, `~/.ssh`, `~/.gitconfig`, LaunchAgent
 
 **Egress.** `interlock egress-proxy [--strict]` is an HTTP(S) proxy (default `127.0.0.1:7392`) that decides every outbound destination host with the egress rules (metadata endpoints refused, raw IPs and sharing services asked, unknown hosts recorded; `--strict` refuses anything outside `trust.allowed_hosts`) and records it. HTTPS is tunnelled, never decrypted. `interlock sandbox --egress http://127.0.0.1:7392 -- my-agent` sets the proxy variables and limits the agent's network to localhost at the OS level, so the proxy is the only way out. Verified live on macOS: an allowed host through the proxy answered 200, the metadata endpoint 403, and a direct connection that skipped the proxy never left the machine.
 
-### 2.0 Custom agents (Claude Agent SDK, Strands, LangChain / LangGraph, OpenAI Agents SDK, Google ADK, CrewAI, Semantic Kernel)
+### 2.0 Custom agents (JavaScript / TypeScript: see `sdk/js/README.md`; Python: Claude Agent SDK, Strands, LangChain / LangGraph, OpenAI Agents SDK, Google ADK, CrewAI, Semantic Kernel)
 
 Agents you build yourself have no hook file; use the in-process integrations. Both talk to the same local daemon, policy, and audit log as the hooks:
 
@@ -151,6 +151,8 @@ Log: `~/.interlock/mcp-proxy.log`. Pins: `~/.interlock/mcp-pins.json`; after rev
 | `interlock policy lint [--workspace P]` | With `--workspace`, also shows which parts of that repository's policy apply and which are not applied (tighten-only). Catches policy mistakes that fail silently: unknown rule ids in `packs.overrides` (with a did-you-mean), unknown packs, overrides that weaken or disable critical rules, catch-all remotes/hosts/MCP allows, toxic-flow detection off. Exits 1 on errors; `doctor` runs it. |
 | `interlock replay [--days N] [--all]` | Re-decide your recorded tool calls with the policy as it is now and list what would change (newly stopped, newly allowed): the way to tune a rule against real history before it affects you. Deterministic: rules and mandate are re-evaluated, the judge is not re-asked, and session state starts fresh. |
 | `interlock pause [--agent A] [--minutes N] [--reason R]` / `interlock resume` | Kill switch: refuse every tool call from all agents (or the named agent types: `claude-code`, `codex`, `mcp-proxy`, `egress-proxy`, ...) until resumed or the time runs out. Enforced in any mode, through hooks, SDK integrations, the MCP gateway, and the egress proxy; takes effect on the next call. `status` and `doctor` show it. |
+| `interlock judge install\|status\|remove [--port N]` | Run the optional judge model locally: installs the `strands-decider` server in `~/.interlock/judge`, downloads the weights, adds `judge.primary` to your policy; the daemon starts it in the background after `interlock restart`. |
+| `interlock capture start\|stop\|report\|export [--harness A] [--scratch DIR]` | Record the real hook payloads an agent sends, to verify an adapter live and to make test fixtures; `report` says whether each block held; `export` redacts your home path, user name and emails. See `docs/ADAPTERS.md` §4. |
 | `interlock doctor` | Check protection is on (the daemon also re-checks hooks every minute and records removed hooks and modified shims in the audit log; `interlock report` lists them): daemon and version, token permissions, policy validity, hooks present in each agent, shims untampered, agents installed but unprotected, recent fail-open calls. Exits non-zero on a problem. |
 | `interlock serve [--mode shadow\|enforce] [--listen host:port]` | Run the daemon. `--mode` overrides the policy file. |
 | `interlock install --kiro [--workspace-root P] [--runtime sh\|node]` | Install the Kiro hooks. `sh` is the default shim (about 33 ms per call); `node` is about 108 ms. |
@@ -232,9 +234,25 @@ mcp:
     "github/delete_*": ask  # server/tool globs
     "github/delete_repo": block
     "*/drop_*": block       # any server
+  oauth:                    # remote servers behind the HTTP gateway
+    deny_scopes: ["admin:*", "delete_repo"]   # refuse tokens or challenges that carry these (globs)
+    pin_authorization_servers: true           # pin who issues each server's tokens on first use
 ```
 
 The most specific pattern wins: a pattern that names a tool beats a server-wide one, exact beats glob, longer beats shorter. Matches fire `mcp.tool_blocked` (block) or `mcp.tool_requires_approval` (ask), which `packs.overrides` can tune like any rule. Tools that take a `command` also get the shell rules, whatever this section says.
+
+**OAuth on remote servers.** The HTTP gateway reads (never verifies, never records) the client's bearer token and the server's `WWW-Authenticate` challenge:
+
+| Rule | Default | When |
+|---|---|---|
+| `mcp.oauth_audience_mismatch` | block | the token is a JWT whose `aud` names another host: a token issued for one service is not passed to another (the request never reaches the server) |
+| `mcp.oauth_denied_scope` | block | the token carries, or the server asks for, a scope in `mcp.oauth.deny_scopes` |
+| `mcp.oauth_broad_scope` | flag | an administrative or unlimited scope (`admin:*`, `*`, `delete_repo`, ...) |
+| `mcp.oauth_metadata_foreign_host` | flag | the challenge points clients at protected-resource metadata on another host |
+| `mcp.oauth_resource_mismatch` | block | that metadata names a different resource |
+| `mcp.oauth_auth_server_changed` | block | the server's `authorization_servers` differ from the ones pinned on first use; after review, `interlock mcp-pins --accept <server>` |
+
+A refused challenge reaches the client as a 403 without the server's `WWW-Authenticate`, so the client is never sent to the new authorization server. Opaque (non-JWT) tokens carry nothing to check; the challenge checks still apply. Each token is decided once per daemon run.
 
 ### Toxic flows (`flow:`)
 
@@ -259,7 +277,7 @@ Sessions are the agent's own session id for hook traffic, and the launching agen
 
 ### Rule catalog
 
-Default actions: `block` refuses; `ask` requires confirmation; `model` routes to the judge (recorded, not enforced, until M2); `flag` records a finding and allows. Override any of them under `packs.overrides`.
+Default actions: `block` refuses; `ask` requires confirmation; `model` routes to the judge (decided by it when one is configured, `interlock judge install`; otherwise recorded as unjudged and allowed); `flag` records a finding and allows. Override any of them under `packs.overrides`.
 
 | Rule | Category | Severity | Default |
 |---|---|---|---|
@@ -313,7 +331,7 @@ Default actions: `block` refuses; `ask` requires confirmation; `model` routes to
 
 ### Mandate (Cedar)
 
-The mandate is the authorization envelope, written in Cedar and evaluated locally. Interlock binds each normalized tool call to an `Interlock::Action` (`git.push`, `git.remote_add`, `git.history_rewrite`, `net.egress`, `destructive`, `install`, `fs.read_sensitive`, `fs.write`, `fs.write_outside`, `sys.privilege`, `shell.build_or_test`) with `context.input` carrying the parsed structure (for `git.push`: `remote`, `branch`, `force`, `delete`) and `context.session` carrying the session counters. Calls that bind to no action are reported as `unjudged` for the mandate, never allowed by default.
+The mandate is the authorization envelope, written in Cedar and evaluated locally. Interlock binds each normalized tool call to an `Interlock::Action` (`git.push`, `git.remote_add`, `git.history_rewrite`, `net.egress`, `destructive`, `install`, `fs.read_sensitive`, `fs.write`, `fs.write_outside`, `sys.privilege`, `shell.build_or_test`) with `context.input` carrying the parsed structure (for `git.push`: `remote`, `branch`, `force`, `delete`; for `net.egress`: `hosts`, whether the call is a fetch tool or `curl` / `wget` in a shell) and `context.session` carrying the session counters. Calls that bind to no action are reported as `unjudged` for the mandate, never allowed by default.
 
 ```cedar
 permit (principal, action == Interlock::Action::"git.push", resource)

@@ -34,14 +34,25 @@ _ADDRESS = r"(?:ai|llm|agent|assistant|model|copilot|claude|codex|kiro|chatgpt|g
 _SIGNALS: list[tuple[str, float, re.Pattern[str]]] = [
     ("override", 0.55, re.compile(
         r"\b(?:ignore|disregard|forget|override|bypass)\b[^.\n]{0,40}\b(?:previous|prior|above|earlier|all|any|your|the|user'?s?)\b"
-        r"[^.\n]{0,30}\b(?:instructions?|rules?|guidelines?|directives?|prompts?|polic(?:y|ies)|safety|guardrails?|requests?|task)\b"
+        r"[^.\n]{0,30}\b(?:instructions?|guidelines?|directives?|prompts?|safety|guardrails?)\b"
+        # rules / policies / tasks only with ignore-style verbs and an agent-facing determiner: docs say "bypass the X policy"
+        r"|\b(?:ignore|disregard|forget)\b[^.\n]{0,40}\b(?:previous|prior|above|earlier|all|your|user'?s?)\b"
+        r"[^.\n]{0,30}\b(?:rules?|polic(?:y|ies)|requests?|task)\b"
         r"|\byour\s+(?:real|actual|true|new|only)\s+(?:task|job|goal|objective|instructions?)\b"
-        r"|\b(?:stop what you are doing|from now on,? your (?:job|task|role) is)\b|\bsystem\s+override\b", re.IGNORECASE)),
+        r"|\b(?:stop what you are doing|from now on,? your (?:job|task|role) is)\b|\bsystem\s+override\b"
+        # "ignore your previous ..." needs no object: attackers misspell it ("iunstructions")
+        r"|\b(?:ignore|disregard|forget)\s+(?:all\s+)?(?:your|the|my|any)\s+(?:previous|prior|earlier|above|original)\b"
+        # task hijack: put the injected goal ahead of the one the user gave
+        r"|\bbefore\s+you\s+(?:can\s+)?(?:solve|complete|finish|do|continue(?:\s+with)?|start)\b[^.\n]{0,30}\btask\b"
+        r"|\bthe\s+task\s+(?:that\s+)?(?:I|the\s+user)\s+gave\s+you\b", re.IGNORECASE)),
     ("new_instructions", 0.35, re.compile(
         r"\b(?:new|updated|real|actual|true|hidden|secret)\s+(?:system\s+)?(?:instructions?|directives?|objective|orders?)\b"
-        r"|\b(?:fetch|get|read|load)\s+(?:your\s+)?(?:next|new|further)\s+instructions?\b", re.IGNORECASE)),
+        r"|\b(?:fetch|get|read|load)\s+(?:your\s+)?(?:next|new|further)\s+instructions?\b"
+        r"|\b(?:(?:strictly\s+)?adhere\s+to|obey|strictly\s+(?:follow|comply\s+with))\s+the\s+following\s+(?:instructions?|directives?|commands?)\b",
+        re.IGNORECASE)),
     ("role_marker", 0.4, re.compile(
-        r"(?:^|\n|<!--|\[)\s*(?:system|assistant|developer)\s*(?:prompt|message|override)?\s*[:\]>]|<\|?\s*(?:im_start|system)\s*\|?>",
+        r"(?:^|\n|<!--|\[)\s*(?:system|assistant|developer)\s*(?:prompt|message|override)?\s*[:\]>]|<\|?\s*(?:im_start|system)\s*\|?>"
+        r"|#{2,}\s*[(\[]?\s*(?:system|developer)[_ ](?:message|prompt|instructions?)\s*[)\]]?",
         re.IGNORECASE)),
     ("addressed", 0.4, re.compile(
         rf"\b(?:note|message|instructions?|reminder|attention|hey|dear|important|notice)\b[^.\n]{{0,25}}\b(?:to|for)\s+"
@@ -49,22 +60,25 @@ _SIGNALS: list[tuple[str, float, re.Pattern[str]]] = [
         rf"|\b(?:if you are|you are an?|as an?)\s+(?:an?\s+)?{_ADDRESS}\b"
         rf"|(?:^|\n|<!--|\]|\*\*)\s*(?:the\s+)?(?:ai\s+)?{_ADDRESS}\s*[:,]"
         rf"|\b(?:the|this|any|all)\s+(?:ai\s+)?{_ADDRESS}s?\s+(?:should|must|needs? to|has to|is required to|will|shall)\b"
-        rf"|\byou\s+are\s+(?:required|instructed|expected|authorized)\s+to\b", re.IGNORECASE | re.MULTILINE)),
+        rf"|\byou\s+are\s+(?:required|instructed|expected|authorized)\s+to\b"
+        rf"|\b(?:message|note|request)\s+from\s+me\b[^.\n]{{0,60}}\bto\s+you\b", re.IGNORECASE | re.MULTILINE)),
     ("action", 0.4, re.compile(
         r"\b(?:run|execute|exec|call|invoke|send|upload|post|transmit|forward|email|exfiltrate|curl|wget|fetch|download|"
         r"install|apply|delete|remove|wipe|push|commit|copy|cp|move|cat|print|list|dump|read|modify|edit|change|add|append|"
-        r"write|replace|disable|set|follow)\b", re.IGNORECASE)),
+        r"write|replace|disable|set|follow|grant|transfer|share|unlock|approve|pay|purchase|buy|withdraw|invite|retrieve|"
+        r"cancel|schedule|book|deposit|enable)\b", re.IGNORECASE)),
     ("concealment", 0.35, re.compile(
         r"\b(?:do not|don't|never|without)\s+(?:tell|telling|inform|informing|mention|mentioning|notify|notifying|alert|"
         r"alerting|ask|asking)\b[^.\n]{0,20}\b(?:the\s+)?(?:user|human|developer|operator)\b"
-        r"|\b(?:silently|secretly|quietly|covertly)\b", re.IGNORECASE)),
+        r"|\b(?:silently|secretly|quietly|covertly)\s+(?:run|execute|send|upload|post|copy|delete|remove|install|add|"
+        r"modify|exfiltrate|forward|email|transfer|grant|share|do|perform|include|append|insert)\b", re.IGNORECASE)),
     ("false_authority", 0.25, re.compile(
         r"\b(?:the\s+)?user\s+(?:has\s+)?(?:already\s+)?(?:approved|authorized|confirmed|consented|agreed)\b"
         r"|\b(?:pre-?approved|authorized by (?:the )?(?:admin|security|owner))\b", re.IGNORECASE)),
     ("url", 0.2, re.compile(r"https?://[^\s)>\"']+", re.IGNORECASE)),
     ("email_address", 0.2, re.compile(r"\b[\w.+-]+@[\w-]+\.[\w.-]+\b")),
     # MCP tool poisoning: <IMPORTANT>-style blocks and instructions about how to use OTHER tools (shadowing)
-    ("instruction_tag", 0.35, re.compile(r"<\s*/?\s*(?:important|system|instructions?|secret|hidden)\s*>", re.IGNORECASE)),
+    ("instruction_tag", 0.35, re.compile(r"<\s*/?\s*(?:important|system|instructions?|secret|hidden|information)\s*>", re.IGNORECASE)),
     ("tool_shadowing", 0.35, re.compile(
         r"\b(?:when|whenever|before|after)\b[^.\n]{0,40}\b(?:using|calling|invoking|you use|you call)\b[^.\n]{0,40}\btool\b"
         r"|\b(?:always|must)\b[^.\n]{0,40}\b(?:bcc|cc|forward|redirect|send a copy)\b", re.IGNORECASE)),

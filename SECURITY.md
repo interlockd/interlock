@@ -21,3 +21,14 @@ The threat model (assets, adversaries, where Interlock sees, and its known limit
 
 - Actions that never pass through an agent's hooks (documented limit).
 - Findings that require an already-compromised user account.
+
+## Verifying a release
+
+Releases are built by GitHub Actions from the tagged commit and published to PyPI with trusted publishing (no stored
+token). From 0.1.2, every wheel and sdist also carries a signed build provenance attestation (Sigstore):
+
+```sh
+pip download interlockd==<version> --no-deps -d /tmp/il && gh attestation verify /tmp/il/* --repo interlockd/interlock
+```
+
+PyPI shows the same provenance on each file's page ("Verified details").

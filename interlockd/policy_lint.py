@@ -23,7 +23,7 @@ class Issue:
 
 
 def lint(policy: Policy) -> list[Issue]:
-    from .det import RULES, flow, mcp, packs  # noqa: F401  register every rule
+    from .det import RULES, flow, mcp, oauth, packs  # noqa: F401  register every rule
 
     out: list[Issue] = []
     known = set(RULES) | COMPOSER_RULES

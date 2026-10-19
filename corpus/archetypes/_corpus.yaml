@@ -4,5 +4,5 @@
 # Without it the allowed_git_remotes default ([]) disables the unknown-remote checks.
 trust:
   allowed_git_remotes:
-    - "github.com/amit-chauhan-aws/*"
+    - "github.com/my-org/*"
     - "github.com/interlock-dev/*"

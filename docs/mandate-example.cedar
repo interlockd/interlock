@@ -12,5 +12,9 @@ when { context.input.force == true && (context.input.branch == "main" || context
 // Capabilities the agent may use freely
 permit (principal, action in [Interlock::Action::"shell.build_or_test", Interlock::Action::"fs.write", Interlock::Action::"install"], resource);
 
+// Network: only these hosts, whether the agent uses a fetch tool or curl in a shell
+permit (principal, action == Interlock::Action::"net.egress", resource)
+when { ["github.com", "api.github.com", "pypi.org", "files.pythonhosted.org", "registry.npmjs.org"].containsAll(context.input.hosts) };
+
 // Capabilities always denied
 forbid (principal, action == Interlock::Action::"sys.privilege", resource);

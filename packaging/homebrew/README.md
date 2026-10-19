@@ -2,7 +2,11 @@
 
 `brew install interlockd/tap/interlock` installs from the `interlockd/homebrew-tap` repository.
 
-After a release is on PyPI:
+The release workflow regenerates the formula after each PyPI release and, when the repository has a
+`HOMEBREW_TAP_TOKEN` secret (fine-grained, contents: write on `interlockd/homebrew-tap`), commits it to the tap.
+Without the secret the formula is attached to the workflow run as the `homebrew-formula` artifact.
+
+By hand, after a release is on PyPI:
 
 ```sh
 python3 packaging/homebrew/make_formula.py 0.1.0 > ../homebrew-tap/Formula/interlock.rb

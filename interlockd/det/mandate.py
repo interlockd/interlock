@@ -36,7 +36,7 @@ def bind_action(res: DetResult, tool_name: str) -> tuple[str | None, dict[str, A
         return "git.remote_add", {"url": n["git_remote_add"]["url"]}
     if any(f.rule in ("git.history_rewrite", "git.reset_hard", "git.clean_force") for f in res.findings):
         return "git.history_rewrite", {}
-    if res.action_class == "network_egress" and n.get("egress_hosts"):
+    if n.get("egress_hosts"):                          # network tools and shell egress (curl, wget, ...) alike
         return "net.egress", {"hosts": n["egress_hosts"]}
     if res.action_class == "destructive":
         return "destructive", {}

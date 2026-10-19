@@ -34,6 +34,7 @@ What the gate decides (enforce mode, nothing executed):
 | GitHub Copilot CLI | ✅ verified live: blocks before execution, withholds injected tool results |
 | Gemini CLI, Windsurf, Antigravity CLI, OpenCode | built from their documented hooks/plugins; live verification in progress |
 | Your own agents (Claude Agent SDK, Strands, LangChain / LangGraph, OpenAI Agents SDK, Google ADK, CrewAI, Semantic Kernel) | ✅ in-process: `guard_options(options)`, `InterlockHooks()`, `guard_tools(tools)`, `guard_agent_tools(agent)`, `guard_agent(agent)`, `crewai.install()`, `guard_kernel(kernel)` |
+| JavaScript / TypeScript agents (Vercel AI SDK, Claude Agent SDK for TS, Mastra) | ✅ `@interlockd/sdk`: `guardTools(tools)`, `guardOptions(options)` ([sdk/js](sdk/js)) |
 | Any MCP client | ✅ the MCP gateway (`interlock gateway wrap`) gates every stdio and remote (HTTP) MCP server, hooks or not |
 | Cline, Copilot in VS Code, and more | hook adapters planned; meanwhile the MCP gateway and `interlock sandbox` cover them |
 
@@ -70,7 +71,7 @@ Policy lives in `~/.interlock/policy.yaml` (user) and `<repo>/.interlock/policy.
 
 ## Honest limits
 
-The full threat model is in [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md). Latency on your own machine: `interlock bench` ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)).
+The full threat model is in [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md). Latency on your own machine: `interlock bench` ([docs/PERFORMANCE.md](docs/PERFORMANCE.md)). Detection and false-positive rates on public datasets (InjecAgent, AgentDojo, NL2Bash), including what it misses: [docs/BENCHMARKS.md](docs/BENCHMARKS.md).
 
 
 - Interlock sees what the agent's hooks show it. A process the agent starts outside the hook path, or a second unguarded agent, is not gated. Network and sandbox enforcement are on the roadmap.
@@ -94,4 +95,9 @@ Adapters for new agents, rules, and corpus cases are all welcome. See [CONTRIBUT
 
 ## License
 
-Apache-2.0.
+Everything in this repository is Apache-2.0, and stays that way: we will not relicense it. That covers enforcement,
+every rule and adapter, the injection detector, the MCP gateway, policy testing, and the local audit log, and it runs
+fully offline with no license check.
+
+A hosted service for teams (fleet-wide policy, dashboards, retention) may come later as a separate product. It will
+not make anything here less safe or move it behind a paywall. See `NOTICE`.

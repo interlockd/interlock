@@ -98,6 +98,26 @@ def test_sarif(sandbox, tmp_path):
     assert main(["scan", "--fail-on", "never", "--sarif", str(out)]) == 0 and json.loads(out.read_text())["runs"]
 
 
+def test_console_report_is_metadata_only(sandbox, tmp_path):
+    from interlockd.scan import run_scan, to_console_report
+
+    home, proj = sandbox
+    rep = to_console_report(run_scan(home, home / ".interlock", proj), proj, home)
+    assert rep["toolVersion"] and rep["startedAt"] and rep["findings"]
+    allowed = {"rule", "severity", "category", "path", "message"}
+    assert all(set(f) == allowed for f in rep["findings"])                      # nothing beyond metadata
+    sh = next(f for f in rep["findings"] if f["rule"] == "mcp.inline_shell")
+    assert sh["path"] == ".vscode/mcp.json" and sh["category"] == "mcp" and sh["message"].startswith("vscode / sh: ")
+    gh = next(f for f in rep["findings"] if f["rule"] == "mcp.inline_secret")
+    assert gh["path"] == ""                                                    # user-level config: no path
+    assert GH_TOKEN not in json.dumps(rep) and str(home) not in json.dumps(rep)  # no secrets, no local paths
+    assert all(len(f["message"]) <= 300 for f in rep["findings"])
+    assert any("~ (your whole home directory)" in f["message"] for f in rep["findings"])
+    out = tmp_path / "console.json"
+    assert main(["scan", "--fail-on", "never", "--console-report", str(out)]) == 0
+    assert json.loads(out.read_text())["findings"]
+
+
 def test_poisoned_instruction_files(tmp_path):
     from interlockd.scan import check_instruction_files
 

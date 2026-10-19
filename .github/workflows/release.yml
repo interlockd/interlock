@@ -15,6 +15,10 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write          # signs the build provenance (Sigstore)
+      attestations: write
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v7
@@ -35,6 +39,9 @@ jobs:
         run: |
           uv venv /tmp/w --python 3.12 && uv pip install --python /tmp/w/bin/python dist/*.whl
           cd /tmp && /tmp/w/bin/interlock --help >/dev/null && /tmp/w/bin/interlock test
+      - name: Build provenance (verify with `gh attestation verify <file> --repo interlockd/interlock`)
+        uses: actions/attest-build-provenance@v2
+        with: { subject-path: "dist/*" }
       - uses: actions/upload-artifact@v7
         with: { name: dist, path: dist/ }
 
@@ -58,3 +65,31 @@ jobs:
           else
             gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
           fi
+
+  homebrew:
+    # Regenerates Formula/interlock.rb from the release on PyPI. With a HOMEBREW_TAP_TOKEN secret (a fine-grained token
+    # with contents: write on interlockd/homebrew-tap) it commits the formula there; without one it is kept as an artifact.
+    needs: publish
+    runs-on: ubuntu-latest
+    env: { TAP_TOKEN: "${{ secrets.HOMEBREW_TAP_TOKEN }}" }
+    steps:
+      - uses: actions/checkout@v7
+      - name: Generate the formula (waits for PyPI to serve the new version)
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            python3 packaging/homebrew/make_formula.py "$v" > interlock.rb && break
+            sleep 30
+          done
+          ruby -c interlock.rb
+      - uses: actions/upload-artifact@v7
+        with: { name: homebrew-formula, path: interlock.rb }
+      - name: Commit to interlockd/homebrew-tap
+        if: env.TAP_TOKEN != ''
+        run: |
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/interlockd/homebrew-tap.git" tap
+          mkdir -p tap/Formula && cp interlock.rb tap/Formula/interlock.rb
+          cd tap
+          git config user.name "interlock release"; git config user.email "release@users.noreply.github.com"
+          git add Formula/interlock.rb
+          git diff --cached --quiet || { git commit -m "interlock ${GITHUB_REF_NAME#v}" && git push origin HEAD:main; }   # works on an empty tap too

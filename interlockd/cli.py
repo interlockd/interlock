@@ -71,11 +71,19 @@ def cmd_serve(args) -> int:
                                         sagemaker_endpoint=jp.sagemaker_endpoint if jp.transport == "sagemaker" else None,
                                         region=s.aws_region, profile=s.aws_profile)
         if jp.transport == "http" and not backend.healthy() and jp.local_command:
-            print(f"judge: starting local decider: {' '.join(jp.local_command)}")
+            # start it in the background: the hooks are served meanwhile, with model-routed rules recorded as unjudged
+            print(f"judge: starting local decider in the background: {' '.join(jp.local_command)}")
             decider_proc = LocalDeciderProcess(command=jp.local_command, health_url=f"{jp.base_url}/health")
-            if not decider_proc.start():
-                print("judge: local decider did not come up; model-routed rules will be recorded as unjudged")
-        if jp.transport == "sagemaker" or backend.healthy():
+
+            def _attach(proc=decider_proc, backend=backend):
+                if proc.start():
+                    daemon.backend = backend
+                    print(f"judge: strands_decider ready at {jp.base_url}")
+                else:
+                    print("judge: local decider did not come up; model-routed rules will be recorded as unjudged")
+
+            threading.Thread(target=_attach, name="interlock-judge-start", daemon=True).start()
+        elif jp.transport == "sagemaker" or backend.healthy():
             daemon.backend = backend
             print(f"judge: strands_decider via {jp.transport} ({jp.sagemaker_endpoint or jp.base_url}) timeout {jp.timeout_ms} ms")
         else:
@@ -1447,6 +1455,11 @@ def cmd_scan(args) -> int:
         from .scan import to_sarif
 
         Path(args.sarif).write_text(json.dumps(to_sarif(r, Path(args.project or Path.cwd()).expanduser().resolve()), indent=2))
+    if args.console_report:
+        from .scan import to_console_report
+
+        project = Path(args.project or Path.cwd()).expanduser().resolve()
+        Path(args.console_report).write_text(json.dumps(to_console_report(r, project, Path.home()), indent=2))
     worst = min((SEVERITY_ORDER[f.severity] for f in r.findings), default=99)
     return 1 if args.fail_on != "never" and worst <= SEVERITY_ORDER[args.fail_on] else 0
 
@@ -1472,8 +1485,13 @@ def cmd_mcp_pins(args) -> int:
 
     s = _settings(args)
     pins = Pins(s.home / "mcp-pins.json")
+    from .mcp_http import OAuthPins
+
+    oauth = OAuthPins(s.home)
     if args.accept:
         n = pins.accept(args.accept, args.tool)
+        if not args.tool and oauth.accept(args.accept):
+            print(f"cleared the authorization-server pin for {args.accept}; it is pinned again on next use")
         print(f"cleared {n} pin(s) for {args.accept}{'/' + args.tool if args.tool else ''}; current definitions are pinned on next use")
         return 0
     data = pins.load()
@@ -1483,6 +1501,8 @@ def cmd_mcp_pins(args) -> int:
         print(server)
         for tool, meta in sorted(tools.items()):
             print(f"  {tool:<32} {meta['sha256'][:12]}  pinned {meta['pinned_at']}")
+    for server, meta in sorted(oauth.load().items()):
+        print(f"{server}  authorization servers: {', '.join(meta['authorization_servers'])}  pinned {meta['pinned_at']}")
     return 0
 
 
@@ -1753,6 +1773,84 @@ def cmd_pause(args) -> int:
     return 0
 
 
+def cmd_capture(args) -> int:
+    from . import capture
+
+    s = _settings(args)
+    if args.action == "start":
+        hs = [h for h in (args.harness or "").split(",") if h]
+        st = capture.start(s.home, hs, args.minutes)
+        print(f"capturing hook calls from {', '.join(st['harnesses'])} until {st['until'][:16].replace('T', ' ')} UTC"
+              f" into {s.home / 'captures'}")
+        if args.scratch:
+            d = capture.scratch(Path(args.scratch).expanduser().resolve())
+            print(f"\nscratch project: {d} (enforce mode inside it, an injected README)\nopen the agent there and ask:")
+            for prompt, expect in capture.PROMPTS:
+                print(f"  - {prompt:<58} expect: {expect}")
+        print("\nthen: interlock capture report   (and `interlock capture export <dir>` for fixtures)")
+        return 0
+    if args.action == "stop":
+        print("capture stopped" if capture.stop(s.home) else "capture was not on")
+        return 0
+    caps = capture.load(s.home, args.harness)
+    if args.action == "report":
+        print(capture.report(caps))
+        return 0
+    if not args.dir:
+        print("usage: interlock capture export <dir>")
+        return 2
+    files = capture.export(caps, Path(args.dir).expanduser())
+    print(f"wrote {len(files)} redacted payloads to {args.dir}; review them before committing")
+    return 0
+
+
+def cmd_judge(args) -> int:
+    import subprocess
+
+    from . import judge_setup as js
+    from .onboard import confirm
+
+    s = _settings(args)
+    policy_path = s.home / "policy.yaml"
+    if args.action == "status":
+        pol = load_policy(s.workspace_roots[0] if s.workspace_roots else None, home=s.home)
+        jp = pol.judge.primary
+        if jp.type == "none":
+            print("judge: not configured (`interlock judge install` sets it up locally)")
+            return 0
+        h = js.health(jp.base_url) if jp.transport == "http" else None
+        print(f"judge: {jp.type} via {jp.transport} {jp.base_url if jp.transport == 'http' else jp.sagemaker_endpoint}"
+              + (f"  up: {h.get('model')} on {h.get('device')}" if h else "  NOT answering (the daemon starts it if local_command is set)"))
+        return 0 if h or jp.transport != "http" else 1
+    if args.action == "remove":
+        changed = js.unconfigure(policy_path)
+        gone = js.remove(s.home)
+        print(("removed judge.primary from the policy; " if changed else "") + (f"deleted {js.venv_dir(s.home)}" if gone else "no local judge installed")
+              + "\nthen `interlock restart` (the downloaded weights stay in the Hugging Face cache)")
+        return 0
+    free = js.disk_free_gb(s.home)
+    print(f"This installs the optional judge model locally:\n  - a private environment in {js.venv_dir(s.home)} with {js.PACKAGE}"
+          f"\n  - the weights ({js.CHECKPOINT} and its base model, about 5 GB) into the Hugging Face cache"
+          f"\n  - judge.primary in {policy_path}, so the daemon starts the server on port {args.port}"
+          f"\n  free disk: {free:.0f} GB\n")
+    if free < 10:
+        print("not enough free disk (10 GB needed)")
+        return 1
+    if not confirm("Proceed?", args.yes):
+        print("nothing changed")
+        return 1
+    try:
+        js.install_env(s.home)
+        js.download(s.home)
+    except subprocess.CalledProcessError as e:
+        print(f"install failed ({e}); nothing was added to the policy. Behind a TLS-inspecting proxy, set SSL_CERT_FILE.")
+        return 1
+    print(js.configure(policy_path, s.home, args.port))
+    print("now `interlock restart`: the daemon starts the judge in the background (about a minute the first time),"
+          " then `interlock judge status`")
+    return 0
+
+
 def cmd_bench(args) -> int:
     import platform
 
@@ -1806,6 +1904,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--json", action="store_true"); p.add_argument("--all", action="store_true", help="include info findings")
     p.add_argument("--fail-on", choices=["high", "medium", "low", "never"], default="high", help="exit 1 at or above this severity")
     p.add_argument("--sarif", help="also write findings as SARIF 2.1.0 to this path (GitHub code scanning)")
+    p.add_argument("--console-report", help="also write findings metadata (no file contents) for the Interlock Console to this path")
     p.set_defaults(fn=cmd_scan)
 
     p = sub.add_parser("mcp", help="run Interlock as an MCP server on stdio (advisory tools for your agent)")
@@ -1875,6 +1974,17 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--minutes", type=float, help="resume automatically after this long"); p.add_argument("--reason")
     p.set_defaults(fn=cmd_pause)
     p = sub.add_parser("resume", help="lift `interlock pause`"); p.set_defaults(fn=cmd_pause)
+
+    p = sub.add_parser("judge", help="run the optional judge model locally (install | status | remove)")
+    p.add_argument("action", choices=["install", "status", "remove"]); p.add_argument("--port", type=int, default=8017)
+    p.add_argument("-y", "--yes", action="store_true")
+    p.set_defaults(fn=cmd_judge)
+
+    p = sub.add_parser("capture", help="record real hook payloads from an agent (verify an adapter live, make fixtures)")
+    p.add_argument("action", choices=["start", "stop", "report", "export"]); p.add_argument("dir", nargs="?")
+    p.add_argument("--harness", help="comma-separated agents (default: all)"); p.add_argument("--minutes", type=int, default=30)
+    p.add_argument("--scratch", help="also create a scratch project for the verification prompts here")
+    p.set_defaults(fn=cmd_capture)
 
     p = sub.add_parser("bench", help="measure decision latency on this machine (temporary daemon; real shim)")
     p.add_argument("--rounds", type=int, default=3); p.add_argument("--json")

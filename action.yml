@@ -22,6 +22,17 @@ inputs:
   version:
     description: Interlock version to install from PyPI (empty = the version of this action)
     default: ""
+  console-api-key:
+    description: >-
+      Optional. An Interlock Console org API key (ilk_...), passed from a secret. When set, the scan's findings
+      metadata (rule, severity, file path, message; never file contents) is sent to the console for this repo.
+    default: ""
+  console-url:
+    description: Interlock Console API base URL
+    default: https://api.interlockd.dev
+  console-fail-on-error:
+    description: "Fail the job if the console upload fails (default false: warn and continue)"
+    default: "false"
 
 outputs:
   sarif:
@@ -45,7 +56,47 @@ runs:
       run: |
         # an empty HOME keeps the scan to this repository's own configs
         export HOME="$(mktemp -d)"
-        interlock scan --project "$GITHUB_WORKSPACE" --fail-on "${{ inputs.fail-on }}" --sarif "$GITHUB_WORKSPACE/${{ inputs.sarif }}"
+        args=(scan --project "$GITHUB_WORKSPACE" --fail-on "${{ inputs.fail-on }}" --sarif "$GITHUB_WORKSPACE/${{ inputs.sarif }}")
+        [ -n "$INTERLOCK_CONSOLE_KEY" ] && args+=(--console-report "$RUNNER_TEMP/interlock-console.json")
+        interlock "${args[@]}"
+      env:
+        INTERLOCK_CONSOLE_KEY: ${{ inputs.console-api-key }}
+    - name: Send findings to the Interlock Console
+      # runs even when the scan step failed the job on findings, so the console sees failing scans too
+      if: always() && inputs.scan == 'true' && inputs.console-api-key != ''
+      shell: bash
+      env:
+        INTERLOCK_CONSOLE_KEY: ${{ inputs.console-api-key }}
+        INTERLOCK_CONSOLE_URL: ${{ inputs.console-url }}
+        INTERLOCK_CONSOLE_STRICT: ${{ inputs.console-fail-on-error }}
+      run: |
+        python3 - <<'PY'
+        import json, os, sys, urllib.error, urllib.request
+        strict = os.environ["INTERLOCK_CONSOLE_STRICT"] == "true"
+        def give_up(msg):
+            print(f"::{'error' if strict else 'warning'}::Interlock Console upload: {msg}")
+            sys.exit(1 if strict else 0)
+        path = os.path.join(os.environ["RUNNER_TEMP"], "interlock-console.json")
+        if not os.path.exists(path):
+            give_up("no scan report was produced (did the scan step run?)")
+        report = json.load(open(path))
+        e = os.environ
+        report.update(repo=e["GITHUB_REPOSITORY"], ref=e.get("GITHUB_REF", ""), commitSha=e.get("GITHUB_SHA", ""),
+                      runUrl=f"{e['GITHUB_SERVER_URL']}/{e['GITHUB_REPOSITORY']}/actions/runs/{e['GITHUB_RUN_ID']}")
+        req = urllib.request.Request(e["INTERLOCK_CONSOLE_URL"].rstrip("/") + "/v1/ingest/scans",
+                                     data=json.dumps(report).encode(), method="POST",
+                                     headers={"Content-Type": "application/json", "User-Agent": "interlock-action",
+                                              "Authorization": f"Bearer {e['INTERLOCK_CONSOLE_KEY']}"})
+        try:
+            with urllib.request.urlopen(req, timeout=20) as r:
+                out = json.load(r)
+        except urllib.error.HTTPError as err:
+            give_up(f"HTTP {err.code}: {err.read().decode(errors='replace')[:300]}")
+        except (urllib.error.URLError, TimeoutError) as err:
+            give_up(str(err))
+        s = out.get("summary", {})
+        print(f"Sent {s.get('total', 0)} findings to the Interlock Console (scan {out.get('scanId')}, status {s.get('status')}).")
+        PY
     - name: Test the policy
       if: inputs.test-policy == 'true'
       shell: bash

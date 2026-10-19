@@ -59,7 +59,7 @@ def _owned(f: Path) -> bool:
 
 def tighten(base: Policy, data: dict[str, Any]) -> tuple[Policy, list[str]]:
     """Apply only the parts of a repository policy that make `base` stricter. Returns (policy, ignored keys)."""
-    from ..det import RULES, flow, mcp, packs  # noqa: F401  register every rule
+    from ..det import RULES, flow, mcp, oauth, packs  # noqa: F401  register every rule
 
     p = base.model_copy(deep=True)
     ignored: list[str] = []
@@ -159,6 +159,12 @@ def _mcp(p: Policy, base: Policy, val: dict, ignored: list[str]) -> None:
         p.mcp.default = m.default
     elif "default" in val and m.default != base.mcp.default:
         ignored.append("mcp.default")
+    if "oauth" in val:
+        p.mcp.oauth.deny_scopes = list(dict.fromkeys([*base.mcp.oauth.deny_scopes, *m.oauth.deny_scopes]))
+        if m.oauth.pin_authorization_servers:
+            p.mcp.oauth.pin_authorization_servers = True
+        elif base.mcp.oauth.pin_authorization_servers:
+            ignored.append("mcp.oauth.pin_authorization_servers")
     has_block = base.mcp.default == "block" or "block" in base.mcp.tools.values()
     for pat, action in m.tools.items():
         cur = base.mcp.tools.get(pat)

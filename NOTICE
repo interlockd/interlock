@@ -1,0 +1,7 @@
+Interlock
+Copyright 2026 the Interlock authors
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Benchmark scripts in benchmarks/ download third-party datasets at run time; those datasets are not part of this
+repository and keep their own licenses: InjecAgent (MIT), AgentDojo (MIT), NL2Bash (GPL-3.0).
