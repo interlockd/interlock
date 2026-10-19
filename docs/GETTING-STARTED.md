@@ -5,9 +5,11 @@ This guide takes about ten minutes. You install Interlock, watch what it would b
 ## 1. Install
 
 ```sh
-pipx install interlockd        # or: uv tool install interlockd
+pipx install interlockd        # or: uv tool install interlockd, or: brew install interlockd/tap/interlock
 interlock init
 ```
+
+macOS and Linux. On Windows, do everything here inside WSL2 (Ubuntu) and run your agents from the WSL terminal.
 
 `init` lists everything it will change and asks first. It then:
 

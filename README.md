@@ -8,9 +8,12 @@ It runs locally. No account, no cloud, no model download required.
 
 
 ```sh
-pipx install interlockd     # or: uv tool install interlockd
+pipx install interlockd     # or: uv tool install interlockd, or: brew install interlockd/tap/interlock
 interlock init              # finds your agents, installs hooks, starts the daemon (shadow mode)
 ```
+
+Runs on macOS and Linux (Python 3.12+). On Windows, use it inside WSL2 and run your agents from the WSL terminal;
+native Windows support is planned.
 
 New here? [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md) walks through shadow mode, enforcing, MCP servers, your own agents and CI in about ten minutes.
 

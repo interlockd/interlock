@@ -12,7 +12,6 @@ chaining existed are reported as legacy, not as breaks.
 
 from __future__ import annotations
 
-import fcntl
 import hashlib
 import json
 import os
@@ -21,6 +20,11 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+try:
+    import fcntl
+except ImportError:              # Windows: not supported (see `interlock`'s startup check); keep the module importable
+    fcntl = None  # type: ignore[assignment]
 
 
 class Spool:
@@ -40,7 +44,8 @@ class Spool:
         with self._lock:
             lock_fd = os.open(self.dir / ".lock", os.O_WRONLY | os.O_CREAT, 0o600)
             try:
-                fcntl.flock(lock_fd, fcntl.LOCK_EX)         # one chain even with several writers on this spool
+                if fcntl is not None:
+                    fcntl.flock(lock_fd, fcntl.LOCK_EX)     # one chain even with several writers on this spool
                 rec = {k: v for k, v in record.items() if k not in ("hash", "prev_hash")}
                 rec["prev_hash"] = self._cached_head(seg)
                 rec["hash"] = record_hash(rec)
@@ -54,7 +59,8 @@ class Spool:
                 finally:
                     os.close(fd)
             finally:
-                fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                if fcntl is not None:
+                    fcntl.flock(lock_fd, fcntl.LOCK_UN)
                 os.close(lock_fd)
 
     def _cached_head(self, seg: Path) -> str:

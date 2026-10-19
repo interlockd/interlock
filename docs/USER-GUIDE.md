@@ -35,7 +35,7 @@ A new install runs in **shadow** mode: every decision is computed and recorded, 
 
 ## 2. Install and run
 
-Prerequisites: Python 3.12 or newer, `curl`, and at least one supported agent (Claude Code, Codex, or Kiro; §4).
+Prerequisites: macOS or Linux, Python 3.12 or newer, `curl`, and at least one supported agent (§4). On Windows, install and run it inside WSL2 (Ubuntu), with your agents run from the WSL terminal; Windows-native agents (an IDE running on Windows itself) aren't covered yet. Linux: the background service is a systemd user service; `interlock sandbox` needs `bubblewrap`.
 
 ```sh
 pipx install interlockd         # or: uv tool install interlockd

@@ -405,27 +405,3 @@ def to_sarif(r: ScanResult, project: Path) -> dict:
                       "results": results}]}
 
 
-def to_console_report(r: ScanResult, project: Path, home: Path | None = None) -> dict:
-    """Findings metadata for the Interlock Console (`interlock scan --console-report`). Metadata only: rule,
-    severity, category, a project-relative path, and the one-line message. No file contents, no secret
-    values (scan never reads them into findings), no fix commands, and local absolute paths in messages
-    become "." (the project) or "~" (home). The GitHub Action adds repo/ref/sha."""
-    import datetime
-
-    from . import __version__
-
-    findings = []
-    for f in r.findings:
-        src = f.source.split(" [project", 1)[0] if f.source else ""
-        try:
-            path = str(Path(src).resolve().relative_to(project)) if src else ""
-        except ValueError:
-            path = ""                                  # outside the project (user-level config): no path
-        msg = f"{f.agent} / {Path(f.subject).name if '/' in f.subject else f.subject}: {f.message}"
-        for local, alias in ((str(project), "."), (str(home or Path.home()), "~")):
-            msg = msg.replace(local, alias)
-        findings.append({"rule": f.rule, "severity": f.severity, "category": f.rule.split(".", 1)[0],
-                         "path": path, "message": msg[:300]})
-    return {"toolVersion": __version__,
-            "startedAt": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
-            "findings": findings}

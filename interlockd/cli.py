@@ -1455,11 +1455,6 @@ def cmd_scan(args) -> int:
         from .scan import to_sarif
 
         Path(args.sarif).write_text(json.dumps(to_sarif(r, Path(args.project or Path.cwd()).expanduser().resolve()), indent=2))
-    if args.console_report:
-        from .scan import to_console_report
-
-        project = Path(args.project or Path.cwd()).expanduser().resolve()
-        Path(args.console_report).write_text(json.dumps(to_console_report(r, project, Path.home()), indent=2))
     worst = min((SEVERITY_ORDER[f.severity] for f in r.findings), default=99)
     return 1 if args.fail_on != "never" and worst <= SEVERITY_ORDER[args.fail_on] else 0
 
@@ -1868,7 +1863,15 @@ def cmd_bench(args) -> int:
     return 0
 
 
+WINDOWS_MESSAGE = (
+    "Interlock runs on macOS and Linux. On Windows, install it inside WSL2 (Ubuntu) and run your agents from the WSL\n"
+    "terminal: `pipx install interlockd && interlock init`. Native Windows support is planned.")
+
+
 def main(argv: list[str] | None = None) -> int:
+    if sys.platform == "win32" and os.environ.get("INTERLOCK_ALLOW_WINDOWS") != "1":
+        print(WINDOWS_MESSAGE, file=sys.stderr)
+        return 1
     ap = argparse.ArgumentParser(prog="interlock", description="Interlock: a pre/post-action interlock for coding agents")
     ap.add_argument("--version", action="version", version=f"interlock {__version__}")
     ap.add_argument("--home", help="Interlock home (default ~/.interlock or $INTERLOCK_HOME)")
@@ -1904,7 +1907,6 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--json", action="store_true"); p.add_argument("--all", action="store_true", help="include info findings")
     p.add_argument("--fail-on", choices=["high", "medium", "low", "never"], default="high", help="exit 1 at or above this severity")
     p.add_argument("--sarif", help="also write findings as SARIF 2.1.0 to this path (GitHub code scanning)")
-    p.add_argument("--console-report", help="also write findings metadata (no file contents) for the Interlock Console to this path")
     p.set_defaults(fn=cmd_scan)
 
     p = sub.add_parser("mcp", help="run Interlock as an MCP server on stdio (advisory tools for your agent)")

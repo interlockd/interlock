@@ -27,3 +27,10 @@ def test_cli_version(capsys):
     with pytest.raises(SystemExit) as e:
         main(["--version"])
     assert e.value.code == 0 and capsys.readouterr().out.strip() == f"interlock {__version__}"
+
+
+def test_windows_gets_a_clear_message(monkeypatch, capsys):
+    from interlockd import cli
+
+    monkeypatch.setattr(cli.sys, "platform", "win32")
+    assert cli.main(["status"]) == 1 and "WSL2" in capsys.readouterr().err

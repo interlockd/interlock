@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Platforms stated: macOS and Linux; on Windows, `interlock` explains how to use WSL2 instead of crashing on import. Homebrew: `brew install interlockd/tap/interlock`.
 - `interlock judge install | status | remove`: run the optional judge model (Strands Decider 2B) locally in one step. The daemon starts it in the background instead of delaying startup.
 - Contributing: pull requests are imported into the development repository with author credit (`CONTRIBUTING.md`); a code of conduct; `demo/demo.sh` (and a VHS tape) for a self-contained recording.
 - `@interlockd/sdk` for JavaScript and TypeScript agents (`sdk/js`, no dependencies): `guardTools` for the Vercel AI SDK, Mastra and any `{ execute }` tool map, and `guardOptions` for the Claude Agent SDK for TypeScript. Both verified with the real packages.
