@@ -23,7 +23,15 @@ BENIGN = "Arrived quickly and works as described; I would buy it again."
 
 def main(argv: list[str]) -> int:
     from interlockd.config import Settings
-    from interlockd.models import AdapterInfo, Capabilities, Context, InterlockEvent, ToolCall, ToolResult, UserMessage
+    from interlockd.models import (
+        AdapterInfo,
+        Capabilities,
+        Context,
+        InterlockEvent,
+        ToolCall,
+        ToolResult,
+        UserMessage,
+    )
     from interlockd.pipeline import Daemon
     from interlockd.policy import Policy
     from interlockd.store.memory import MemoryRepository

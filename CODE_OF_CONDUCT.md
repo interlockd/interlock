@@ -6,5 +6,5 @@ In short: be respectful and constructive, assume good faith, and keep discussion
 attacks, and discriminatory language are not acceptable in issues, pull requests, discussions, or any other project
 space.
 
-To report a problem, email **conduct@interlockd.dev**. Reports are handled confidentially. The maintainers may remove content and restrict participation, as described in the Covenant's
+To report a problem, email **amit@interlockd.dev**. Reports are handled confidentially. The maintainers may remove content and restrict participation, as described in the Covenant's
 enforcement guidelines.
