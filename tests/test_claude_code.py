@@ -60,10 +60,10 @@ def test_transcript_reader(tmp_path):
         {"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": "then push it"}]}},
         {"type": "user", "isMeta": True, "message": {"role": "user", "content": "<system-reminder>"}},
     ]
-    p.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    p.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
     t = ClaudeTranscript()
     assert [m.text for m in t.user_messages(str(p), 5)] == ["clean up the PR", "then push it"]  # tool results and meta excluded
-    with open(p, "a") as f:
+    with open(p, "a", encoding="utf-8") as f:
         f.write(json.dumps({"type": "user", "message": {"role": "user", "content": "and tag it"}}) + "\n")
     assert t.user_messages(str(p), 1)[0].text == "and tag it" and t.turn_count(str(p)) == 3
     assert t.user_messages(None) is None and t.user_messages(str(tmp_path / "missing")) is None
@@ -119,7 +119,7 @@ def _post(server, harness, payload, fmt="claude-code", event=None):
 
 def test_api_renders_deny_for_force_push_and_nothing_for_benign(server, tmp_path):
     transcript = tmp_path / "t.jsonl"
-    transcript.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": "clean up the PR"}}) + "\n")
+    transcript.write_text(json.dumps({"type": "user", "message": {"role": "user", "content": "clean up the PR"}}) + "\n", encoding="utf-8")
     body = _post(server, "claude-code", {**PRE, "transcript_path": str(transcript)})
     out = json.loads(body)["hookSpecificOutput"]
     assert out["permissionDecision"] == "deny" and "force push protected branch" in out["permissionDecisionReason"]
@@ -134,8 +134,8 @@ SHIM = Path(__file__).resolve().parents[1] / "interlockd" / "shims" / "claude-co
 
 @pytest.mark.skipif(shutil.which("curl") is None, reason="curl not available")
 def test_shim_prints_daemon_json(server, tmp_path):
-    home = tmp_path / "ih"; home.mkdir(); (home / "token").write_text("tok\n")
-    shim = tmp_path / "shim.sh"; shim.write_text(SHIM.read_text().replace("__HARNESS__", "claude-code"))
+    home = tmp_path / "ih"; home.mkdir(); (home / "token").write_text("tok\n", encoding="utf-8")
+    shim = tmp_path / "shim.sh"; shim.write_text(SHIM.read_text(encoding="utf-8").replace("__HARNESS__", "claude-code"), encoding="utf-8")
     host, port = server.address
     env = {**os.environ, "INTERLOCK_HOME": str(home), "INTERLOCK_URL": f"http://{host}:{port}"}
     r = subprocess.run(["sh", str(shim)], input=json.dumps(PRE), text=True, capture_output=True, env=env, timeout=10, check=False)
@@ -151,22 +151,22 @@ def test_installers_merge_existing_settings(tmp_path, monkeypatch):
     home = tmp_path / "ih"; home.mkdir()
     proj = tmp_path / "proj"; (proj / ".claude").mkdir(parents=True)
     (proj / ".claude" / "settings.json").write_text(json.dumps({"permissions": {"allow": ["Read"]},
-        "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "echo other"}]}]}}))
+        "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "echo other"}]}]}}), encoding="utf-8")
     assert cli_main(["--home", str(home), "install", "--claude-code", "--project", str(proj)]) == 0
-    s = json.loads((proj / ".claude" / "settings.json").read_text())
+    s = json.loads((proj / ".claude" / "settings.json").read_text(encoding="utf-8"))
     assert s["permissions"] == {"allow": ["Read"]}                                   # untouched
     assert len(s["hooks"]["PreToolUse"]) == 2 and s["hooks"]["PreToolUse"][0]["hooks"][0]["command"] == "echo other"
     ours = s["hooks"]["PreToolUse"][1]
     assert ours["matcher"].startswith("Bash|Edit") and "adapters/claude-code/interlock-hook.sh" in ours["hooks"][0]["command"]
-    assert (home / "adapters" / "claude-code" / "interlock-hook.sh").read_text().count('HARNESS="claude-code"') == 1
+    assert (home / "adapters" / "claude-code" / "interlock-hook.sh").read_text(encoding="utf-8").count('HARNESS="claude-code"') == 1
     # idempotent: reinstall replaces our group instead of appending another
     assert cli_main(["--home", str(home), "install", "--claude-code", "--project", str(proj)]) == 0
-    assert len(json.loads((proj / ".claude" / "settings.json").read_text())["hooks"]["PreToolUse"]) == 2
+    assert len(json.loads((proj / ".claude" / "settings.json").read_text(encoding="utf-8"))["hooks"]["PreToolUse"]) == 2
     # codex
     assert cli_main(["--home", str(home), "install", "--codex", "--project", str(proj)]) == 0
-    c = json.loads((proj / ".codex" / "hooks.json").read_text())
+    c = json.loads((proj / ".codex" / "hooks.json").read_text(encoding="utf-8"))
     assert c["hooks"]["PreToolUse"][0]["hooks"][0]["statusMessage"] == "Interlock" and c["description"]
-    assert 'HARNESS="codex"' in (home / "adapters" / "codex" / "interlock-hook.sh").read_text()
+    assert 'HARNESS="codex"' in (home / "adapters" / "codex" / "interlock-hook.sh").read_text(encoding="utf-8")
 
 
 def test_withheld_output_matches_the_tool_shape():
@@ -189,8 +189,8 @@ FIXTURES = Path(__file__).parent / "fixtures"
 @pytest.mark.parametrize("path", sorted(FIXTURES.glob("*/*.json")), ids=lambda p: f"{p.parent.name}/{p.stem}")
 def test_live_captured_payloads(server, path):
     """Payloads captured from the real CLIs (Claude Code 2.1.296, Codex 0.162, Cursor CLI 2026.10.16, Copilot CLI
-    1.0.98), usernames and emails redacted."""
-    harness, payload = path.parent.name, json.loads(path.read_text())
+    1.0.98, Gemini CLI 0.65.0), usernames and emails redacted."""
+    harness, payload = path.parent.name, json.loads(path.read_text(encoding="utf-8"))
     fmt = "claude-code" if harness in ("claude-code", "codex") else harness
     body = _post(server, harness, payload, fmt=fmt, event="post" if path.stem.startswith("post-") else "pre")
     if path.stem.endswith("-block") and harness == "cursor":
@@ -199,6 +199,9 @@ def test_live_captured_payloads(server, path):
     elif path.stem.endswith("-block") and harness == "copilot-cli":
         out = json.loads(body)
         assert out["permissionDecision"] == "deny" and "[interlock]" in out["permissionDecisionReason"]
+    elif harness == "gemini-cli" and (path.stem.endswith("-block") or path.stem.endswith("-inject")):
+        out = json.loads(body)                                         # Gemini: decision "deny" refuses or replaces
+        assert out["decision"] == "deny" and "[interlock]" in out["reason"] and "evil.example" not in out["reason"]
     elif path.stem.endswith("-block"):
         out = json.loads(body)["hookSpecificOutput"]
         assert out["permissionDecision"] == "deny" and "[interlock]" in out["permissionDecisionReason"]

@@ -115,7 +115,7 @@ def load_cases(*dirs: Path) -> list[dict]:
     out: list[dict] = []
     for d in dirs:
         for f in sorted(Path(d).glob("*.jsonl")):
-            for lineno, line in enumerate(f.read_text().splitlines(), 1):
+            for lineno, line in enumerate(f.read_text(encoding="utf-8").splitlines(), 1):
                 if not line.strip():
                     continue
                 try:
@@ -145,7 +145,7 @@ def load_corpus_trust(*dirs: Path) -> dict:
     for d in dirs:
         f = Path(d) / "_corpus.yaml"
         if f.exists():
-            data = yaml.safe_load(f.read_text()) or {}
+            data = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
             merged.update(data.get("trust") or {})
     return merged
 
@@ -184,7 +184,7 @@ def run_case(case: dict, ws: Path, *, policy: Policy | None = None, corpus_trust
     for name, content in (case.get("manifest") or {}).items():
         target = ws / name
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content)
+        target.write_text(content, encoding="utf-8")
 
     if "cmd" in case:
         tool, args = "execute_bash", {"command": case["cmd"]}
@@ -358,7 +358,7 @@ def score_judge(cases: list[dict], backend, ws_root: Path, *, policy: Policy | N
         for name, content in (case.get("manifest") or {}).items():
             if isinstance(content, str):
                 (ws / name).parent.mkdir(parents=True, exist_ok=True)
-                (ws / name).write_text(content)
+                (ws / name).write_text(content, encoding="utf-8")
         # a deterministic pass gives us normalized structure for the intent projection
         det = None
         try:

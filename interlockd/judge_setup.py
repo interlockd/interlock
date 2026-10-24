@@ -76,7 +76,7 @@ def judge_block(home: Path, port: int, checkpoint: str = CHECKPOINT) -> str:
 
 def configure(policy_path: Path, home: Path, port: int) -> str:
     """Add `judge.primary` to the policy file, keeping everything else (comments included). Returns what happened."""
-    text = policy_path.read_text() if policy_path.exists() else ""
+    text = policy_path.read_text(encoding="utf-8") if policy_path.exists() else ""
     if re.search(r"^\s{2}primary:", text, re.MULTILINE):
         return "unchanged: the policy already has judge.primary (edit it by hand, or `interlock judge remove` first)"
     block = judge_block(home, port)
@@ -85,17 +85,17 @@ def configure(policy_path: Path, home: Path, port: int) -> str:
         text = text[: m.end()] + "\n" + block + text[m.end() + 1:]
     else:
         text = text.rstrip("\n") + "\n\njudge:\n" + block
-    policy_path.write_text(text)
+    policy_path.write_text(text, encoding="utf-8")
     return f"added judge.primary to {policy_path}"
 
 
 def unconfigure(policy_path: Path) -> bool:
     if not policy_path.exists():
         return False
-    text = policy_path.read_text()
+    text = policy_path.read_text(encoding="utf-8")
     new = re.sub(r"^  primary:\s+# added by `interlock judge install`\n(?:    .*\n)+", "", text, flags=re.MULTILINE)
     if new != text:
-        policy_path.write_text(new)
+        policy_path.write_text(new, encoding="utf-8")
     return new != text
 
 

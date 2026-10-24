@@ -54,9 +54,9 @@ def server(settings):
 
 
 def _run(tmp_path, url, **env):
-    home = tmp_path / "ih"; home.mkdir(exist_ok=True); (home / "token").write_text("tok\n")
-    plugin = tmp_path / "interlock.mjs"; plugin.write_text(PLUGIN.read_text().replace("__VERSION__", "t"))
-    driver = tmp_path / "driver.mjs"; driver.write_text(DRIVER)
+    home = tmp_path / "ih"; home.mkdir(exist_ok=True); (home / "token").write_text("tok\n", encoding="utf-8")
+    plugin = tmp_path / "interlock.mjs"; plugin.write_text(PLUGIN.read_text(encoding="utf-8").replace("__VERSION__", "t"), encoding="utf-8")
+    driver = tmp_path / "driver.mjs"; driver.write_text(DRIVER, encoding="utf-8")
     e = {**os.environ, "INTERLOCK_HOME": str(home), "INTERLOCK_URL": url, **env}
     r = subprocess.run(["node", str(driver), plugin.as_uri()], text=True, capture_output=True, env=e, timeout=30, check=False)
     assert r.returncode == 0, r.stderr
@@ -80,8 +80,9 @@ def test_plugin_daemon_down(tmp_path):
 def test_install_uninstall(tmp_path, monkeypatch):
     home = tmp_path / "home"; (home / ".config" / "opencode").mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home)); monkeypatch.setenv("INTERLOCK_HOME", str(home / ".interlock"))
+    monkeypatch.setenv("USERPROFILE", str(home)); monkeypatch.setenv("INTERLOCK_HOME", str(home / ".interlock"))   # Windows: Path.home()
     monkeypatch.delenv("XDG_CONFIG_HOME", raising=False); monkeypatch.setenv("PATH", "/usr/bin:/bin"); monkeypatch.chdir(tmp_path)
     assert main(["init", "--yes", "--no-service", "--harness", "opencode"]) == 0
     plugin = home / ".config" / "opencode" / "plugins" / "interlock.js"
-    assert plugin.exists() and "__VERSION__" not in plugin.read_text()
+    assert plugin.exists() and "__VERSION__" not in plugin.read_text(encoding="utf-8")
     assert main(["uninstall", "--yes"]) == 0 and not plugin.exists()

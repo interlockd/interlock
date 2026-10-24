@@ -57,6 +57,6 @@ def test_engine_applies_mcp_policy(tmp_path):
 def test_policy_yaml_round_trip(tmp_path):
     from interlockd.policy import load_policy
 
-    (tmp_path / "policy.yaml").write_text("mcp:\n  default: ask\n  tools:\n    github: allow\n    'github/delete_*': block\n")
+    (tmp_path / "policy.yaml").write_text("mcp:\n  default: ask\n  tools:\n    github: allow\n    'github/delete_*': block\n", encoding="utf-8")
     pol = load_policy(None, home=tmp_path)
     assert pol.mcp.default == "ask" and pol.mcp.tools["github/delete_*"] == "block"

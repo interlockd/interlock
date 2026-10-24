@@ -21,7 +21,7 @@ FIX = Path(__file__).parent / "fixtures" / "claude-code"
 
 
 def _fixture(name, tmp_path):
-    p = json.loads((FIX / name).read_text())
+    p = json.loads((FIX / name).read_text(encoding="utf-8"))
     p["cwd"], p["transcript_path"] = str(tmp_path), str(tmp_path / "none.jsonl")
     return p
 

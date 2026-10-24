@@ -23,7 +23,7 @@ def _repo_policies_on(monkeypatch):
 def _repo(tmp_path, data, name="repo"):
     root = tmp_path / name
     (root / ".interlock").mkdir(parents=True)
-    (root / ".interlock" / "policy.yaml").write_text(yaml.safe_dump(data))
+    (root / ".interlock" / "policy.yaml").write_text(yaml.safe_dump(data), encoding="utf-8")
     (root / "src").mkdir()
     return root
 
@@ -99,10 +99,10 @@ def test_trusted_repo_applies_in_full_and_changes_are_picked_up(settings, tmp_pa
     d = _daemon(settings, mode="enforce", trusted_workspaces=[str(tmp_path / "re*")])
     assert _bash(d, repo, "sudo ls").disposition == "allow"
     f = repo / ".interlock" / "policy.yaml"
-    f.write_text(yaml.safe_dump({"packs": {"overrides": {"shell.sudo": {"action": "block"}}}, "trust": {"x": 1}}))
+    f.write_text(yaml.safe_dump({"packs": {"overrides": {"shell.sudo": {"action": "block"}}}, "trust": {"x": 1}}), encoding="utf-8")
     os.utime(f, ns=(1, 1))                                                     # a different mtime, whatever the clock
     assert _bash(d, repo, "sudo ls").disposition == "ask"                     # `trust.x` does not validate: ignored whole
-    f.write_text(yaml.safe_dump({"packs": {"overrides": {"shell.sudo": {"action": "block"}}}}))
+    f.write_text(yaml.safe_dump({"packs": {"overrides": {"shell.sudo": {"action": "block"}}}}), encoding="utf-8")
     os.utime(f, ns=(2, 2))
     assert _bash(d, repo, "sudo ls").disposition == "block"
 
@@ -114,11 +114,11 @@ def test_lookup_stops_at_home_and_skips_interlock_state(settings, tmp_path):
     from interlockd.config import Settings
 
     s = Settings(home=tmp_path / "u" / ".interlock"); s.home.mkdir(parents=True)
-    (s.home / "policy.yaml").write_text("mode: enforce\n")                     # Interlock's own state, one level up
+    (s.home / "policy.yaml").write_text("mode: enforce\n", encoding="utf-8")                     # Interlock's own state, one level up
     assert _bash(_daemon(s), tmp_path / "u", "sudo ls").mode == "shadow"
 
 
-@pytest.mark.skipif(os.getuid() == 0, reason="root-owned files are accepted")
+@pytest.mark.skipif(not hasattr(os, "getuid") or os.getuid() == 0, reason="root-owned files are accepted; no uids on Windows")
 def test_policy_owned_by_someone_else_is_skipped(tmp_path, monkeypatch):
     repo = _repo(tmp_path, {"mode": "enforce"})
     assert find_repo_policy(repo / "src", stop=tmp_path / "nowhere") is not None

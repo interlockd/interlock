@@ -33,7 +33,7 @@ def _daemon_server(settings, mode):
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    home = tmp_path / "il"; home.mkdir(); (home / "token").write_text("tok\n")
+    home = tmp_path / "il"; home.mkdir(); (home / "token").write_text("tok\n", encoding="utf-8")
     s = Settings(home=home)
     servers = []
 
@@ -79,7 +79,7 @@ def test_enforce(env):
     assert "evil.example" not in json.dumps(r[5]) and "[interlock]" in r[5]["result"]["content"][0]["text"]  # withheld
     pins = Pins(s.home / "mcp-pins.json").load()
     assert set(pins["fake"]) == {"echo", "add", "readme", "shell"}
-    assert "hid tool add" in (s.home / "mcp-proxy.log").read_text()
+    assert "hid tool add" in (s.home / "mcp-proxy.log").read_text(encoding="utf-8")
 
 
 def test_rug_pull_is_hidden_until_accepted(env, monkeypatch):
@@ -88,7 +88,7 @@ def test_rug_pull_is_hidden_until_accepted(env, monkeypatch):
     monkeypatch.setenv("RUG", "1")
     _, r = _run(s, REQS[:3])
     assert "shell" not in [t["name"] for t in r[2]["result"]["tools"]]
-    assert "possible rug pull" in (s.home / "mcp-proxy.log").read_text()
+    assert "possible rug pull" in (s.home / "mcp-proxy.log").read_text(encoding="utf-8")
     assert Pins(s.home / "mcp-pins.json").accept("fake", "shell") == 1
     _, r = _run(s, REQS[:3])
     assert "shell" in [t["name"] for t in r[2]["result"]["tools"]]                   # re-pinned after review
@@ -100,7 +100,7 @@ def test_shadow_records_but_changes_nothing(env):
     assert "add" in [t["name"] for t in r[2]["result"]["tools"]]
     assert r[4]["result"]["content"][0]["text"].startswith("ran shell")             # forwarded
     assert "evil.example" in json.dumps(r[5])                                         # not withheld
-    assert "would hide (shadow)" in (s.home / "mcp-proxy.log").read_text()
+    assert "would hide (shadow)" in (s.home / "mcp-proxy.log").read_text(encoding="utf-8")
 
 
 def test_daemon_down_fail_open_and_closed(env):

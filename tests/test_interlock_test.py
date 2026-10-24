@@ -12,7 +12,7 @@ from interlockd.testkit import load_cases, load_corpus_trust, make_policy, run_c
 
 def _write_corpus(d: Path, cases: list[dict]) -> Path:
     d.mkdir(parents=True, exist_ok=True)
-    (d / "mini.jsonl").write_text("\n".join(json.dumps(c) for c in cases) + "\n")
+    (d / "mini.jsonl").write_text("\n".join(json.dumps(c) for c in cases) + "\n", encoding="utf-8")
     return d
 
 
@@ -69,7 +69,7 @@ def test_load_cases_tags_pack(tmp_path):
 
 def test_corpus_trust_fills_defaults(tmp_path):
     """`_corpus.yaml` trust assumptions fill in trust fields the base policy left at defaults."""
-    (tmp_path / "_corpus.yaml").write_text("trust:\n  allowed_git_remotes: ['github.com/acme/*']\n")
+    (tmp_path / "_corpus.yaml").write_text("trust:\n  allowed_git_remotes: ['github.com/acme/*']\n", encoding="utf-8")
     trust = load_corpus_trust(tmp_path)
     assert trust == {"allowed_git_remotes": ["github.com/acme/*"]}
     p = make_policy(str(tmp_path), base=Policy(), corpus_trust=trust)
@@ -127,7 +127,7 @@ def test_cli_json_report(tmp_path):
     rc = main(["--home", str(tmp_path / "home"), "test", "--corpus", str(corpus),
                "--json", str(out_json), "--quiet"])
     assert rc == 0
-    report = json.loads(out_json.read_text())
+    report = json.loads(out_json.read_text(encoding="utf-8"))
     assert report["totals"]["cases"] == 2
     assert report["totals"]["false_positives"] == 0
     assert report["totals"]["false_negatives"] == 0

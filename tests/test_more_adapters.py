@@ -75,8 +75,8 @@ def test_rendering(server):
 
 
 def _shim(tmp_path, harness, server, payload, *args, **env):
-    home = tmp_path / "ih"; home.mkdir(exist_ok=True); (home / "token").write_text("tok\n")
-    sh = tmp_path / f"{harness}.sh"; sh.write_text(SHIM.read_text().replace("__HARNESS__", harness))
+    home = tmp_path / "ih"; home.mkdir(exist_ok=True); (home / "token").write_text("tok\n", encoding="utf-8")
+    sh = tmp_path / f"{harness}.sh"; sh.write_text(SHIM.read_text(encoding="utf-8").replace("__HARNESS__", harness), encoding="utf-8")
     host, port = server.address
     e = {**os.environ, "INTERLOCK_HOME": str(home), "INTERLOCK_URL": f"http://{host}:{port}", **env}
     return subprocess.run(["sh", str(sh), *args], input=json.dumps(payload), text=True, capture_output=True, env=e, timeout=10, check=False)
@@ -113,18 +113,19 @@ def test_install_and_uninstall(tmp_path, monkeypatch):
     home = tmp_path / "home"
     for d in (".copilot", ".codeium/windsurf", ".gemini/antigravity-cli", ".gemini/config"):
         (home / d).mkdir(parents=True)
-    (home / ".gemini" / "config" / "hooks.json").write_text(json.dumps({"mine": {"enabled": True}}))
-    (home / ".codeium" / "windsurf" / "hooks.json").write_text(json.dumps({"hooks": {"pre_run_command": [{"command": "mine"}]}}))
+    (home / ".gemini" / "config" / "hooks.json").write_text(json.dumps({"mine": {"enabled": True}}), encoding="utf-8")
+    (home / ".codeium" / "windsurf" / "hooks.json").write_text(json.dumps({"hooks": {"pre_run_command": [{"command": "mine"}]}}), encoding="utf-8")
     monkeypatch.setenv("HOME", str(home)); monkeypatch.setenv("INTERLOCK_HOME", str(home / ".interlock"))
+    monkeypatch.setenv("USERPROFILE", str(home)); monkeypatch.setenv("INTERLOCK_HOME", str(home / ".interlock"))   # Windows: Path.home()
     monkeypatch.setenv("PATH", "/usr/bin:/bin"); monkeypatch.chdir(tmp_path)
     assert main(["init", "--yes", "--no-service", "--harness", "copilot-cli,windsurf,antigravity"]) == 0
-    cp = json.loads((home / ".copilot" / "hooks" / "interlock.json").read_text())
+    cp = json.loads((home / ".copilot" / "hooks" / "interlock.json").read_text(encoding="utf-8"))
     assert cp["version"] == 1 and cp["hooks"]["preToolUse"][0]["bash"].endswith(" pre") and cp["hooks"]["postToolUse"][0]["bash"].endswith(" post")
-    ws = json.loads((home / ".codeium" / "windsurf" / "hooks.json").read_text())["hooks"]
+    ws = json.loads((home / ".codeium" / "windsurf" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
     assert ws["pre_run_command"][0] == {"command": "mine"} and len(ws["pre_run_command"]) == 2 and "pre_mcp_tool_use" in ws
-    ag = json.loads((home / ".gemini" / "config" / "hooks.json").read_text())
+    ag = json.loads((home / ".gemini" / "config" / "hooks.json").read_text(encoding="utf-8"))
     assert ag["mine"] == {"enabled": True} and ag["interlock"]["PreToolUse"][0]["matcher"] == "*"
     assert main(["uninstall", "--yes"]) == 0
-    assert json.loads((home / ".gemini" / "config" / "hooks.json").read_text()) == {"mine": {"enabled": True}}
-    assert json.loads((home / ".codeium" / "windsurf" / "hooks.json").read_text()) == {"hooks": {"pre_run_command": [{"command": "mine"}]}}
-    assert not (home / ".copilot" / "hooks" / "interlock.json").exists() or "hooks" not in json.loads((home / ".copilot" / "hooks" / "interlock.json").read_text())
+    assert json.loads((home / ".gemini" / "config" / "hooks.json").read_text(encoding="utf-8")) == {"mine": {"enabled": True}}
+    assert json.loads((home / ".codeium" / "windsurf" / "hooks.json").read_text(encoding="utf-8")) == {"hooks": {"pre_run_command": [{"command": "mine"}]}}
+    assert not (home / ".copilot" / "hooks" / "interlock.json").exists() or "hooks" not in json.loads((home / ".copilot" / "hooks" / "interlock.json").read_text(encoding="utf-8"))

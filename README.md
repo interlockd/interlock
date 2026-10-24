@@ -12,8 +12,8 @@ pipx install interlockd     # or: uv tool install interlockd, or: brew install i
 interlock init              # finds your agents, installs hooks, starts the daemon (shadow mode)
 ```
 
-Runs on macOS and Linux (Python 3.12+). On Windows, use it inside WSL2 and run your agents from the WSL terminal;
-native Windows support is planned.
+Runs on macOS and Linux (Python 3.12+). On Windows, use it inside WSL2 and run your agents from the WSL terminal.
+Natively on Windows, the daemon and the Python and JavaScript SDKs work today (`interlock start`); agent hooks are next.
 
 New here? [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md) walks through shadow mode, enforcing, MCP servers, your own agents and CI in about ten minutes.
 
@@ -35,7 +35,8 @@ What the gate decides (enforce mode, nothing executed):
 | Kiro (IDE) | ✅ verified live |
 | Cursor (CLI) | ✅ verified live: blocks before execution |
 | GitHub Copilot CLI | ✅ verified live: blocks before execution, withholds injected tool results |
-| Gemini CLI, Windsurf, Antigravity CLI, OpenCode | built from their documented hooks/plugins; live verification in progress |
+| Gemini CLI | ✅ verified live: blocks before execution, withholds injected tool results |
+| Windsurf, Antigravity CLI, OpenCode | built from their documented hooks/plugins; live verification in progress |
 | Your own agents (Claude Agent SDK, Strands, LangChain / LangGraph, OpenAI Agents SDK, Google ADK, CrewAI, Semantic Kernel) | ✅ in-process: `guard_options(options)`, `InterlockHooks()`, `guard_tools(tools)`, `guard_agent_tools(agent)`, `guard_agent(agent)`, `crewai.install()`, `guard_kernel(kernel)` |
 | JavaScript / TypeScript agents (Vercel AI SDK, Claude Agent SDK for TS, Mastra) | ✅ `@interlockd/sdk`: `guardTools(tools)`, `guardOptions(options)` ([sdk/js](sdk/js)) |
 | Any MCP client | ✅ the MCP gateway (`interlock gateway wrap`) gates every stdio and remote (HTTP) MCP server, hooks or not |
@@ -85,7 +86,7 @@ The full threat model is in [docs/THREAT-MODEL.md](docs/THREAT-MODEL.md). Latenc
 
 ```yaml
 - uses: actions/checkout@v7
-- uses: interlockd/interlock@v0.1.2        # scan MCP/agent configs, test .interlock/policy.yaml
+- uses: interlockd/interlock@v0.1.3        # scan MCP/agent configs, test .interlock/policy.yaml
   with: { fail-on: high }
 - uses: github/codeql-action/upload-sarif@v3
   if: always()

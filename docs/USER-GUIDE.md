@@ -27,7 +27,7 @@ This guide covers what Interlock does today and how to run it. It grows with the
 3. **Mandate.** An optional Cedar policy expresses what the agent is authorized to do (which remotes, which branches, which capabilities, how many destructive operations per session). Denials become findings.
 4. **Composition.** The strongest action wins (`block` > `ask` > `model` > `flag` > `allow`). A denial budget escalates to the user after 3 consecutive or 20 total denials in a session.
 5. **Judge.** Rules routed to `model` are decided by a decision model (Strands Decider 2B, open weights) answering "did the user authorize this action?" when a judge backend is configured; without one they are recorded as unjudged. `interlock judge install` sets it up on this machine in one step (a private environment in `~/.interlock/judge`, about 5 GB of weights, and `judge.primary` in your policy); the daemon then starts and supervises it, in the background, and `interlock judge status` / `interlock judge remove` do what they say.
-6. **Post-action probe.** Tool results are checked for instructions addressed to the agent. The **local probe** (heuristics, plus an optional classifier such as PromptGuard 2) is on by default and needs no AWS or network. Amazon Bedrock Guardrails (`judge.probe.enabled`) and the judge's `injection_present` are optional extra detectors. All detectors compose deny-wins: the strongest signal sets `warn` or `withhold`.
+6. **Post-action probe.** Tool results are checked for instructions addressed to the agent. The **local probe** (heuristics, plus an optional classifier such as PromptGuard 2) is on by default and needs no AWS or network; it also scores ROT13 and base64 decodings of each result, because an agent whose read was withheld may print the same file encoded. Amazon Bedrock Guardrails (`judge.probe.enabled`) and the judge's `injection_present` are optional extra detectors. All detectors compose deny-wins: the strongest signal sets `warn` or `withhold`.
 
 ### Shadow and enforce
 
@@ -35,7 +35,7 @@ A new install runs in **shadow** mode: every decision is computed and recorded, 
 
 ## 2. Install and run
 
-Prerequisites: macOS or Linux, Python 3.12 or newer, `curl`, and at least one supported agent (§4). On Windows, install and run it inside WSL2 (Ubuntu), with your agents run from the WSL terminal; Windows-native agents (an IDE running on Windows itself) aren't covered yet. Linux: the background service is a systemd user service; `interlock sandbox` needs `bubblewrap`.
+Prerequisites: macOS or Linux, Python 3.12 or newer, `curl`, and at least one supported agent (§4). On Windows, install and run it inside WSL2 (Ubuntu), with your agents run from the WSL terminal. Natively on Windows, `interlock start` runs the daemon for the Python and JavaScript SDKs, with the same policy, audit log, `scan`, `report` and `test`; `init`, `install`, `gateway`, `sandbox`, `selftest`, `capture` and `judge` need macOS or Linux for now and say so. Windows-native agents (an IDE running on Windows itself) aren't covered yet. Linux: the background service is a systemd user service; `interlock sandbox` needs `bubblewrap`.
 
 ```sh
 pipx install interlockd         # or: uv tool install interlockd
@@ -280,6 +280,8 @@ flow:
 ```
 
 **Memory poisoning.** Agent instruction files (`CLAUDE.md`, `AGENTS.md`, `GEMINI.md`, `.cursorrules`, `.github/copilot-instructions.md`, `.cursor/rules/`, ...) and MCP memory servers are read back into every future session. Writes to them are recorded (`memory.instruction_file_write`); content that reads like instructions to the agent asks (`memory.injected_instructions`); and once a session has taken in untrusted content, writing them asks (`flow.memory_poisoning`), so an injected instruction can't quietly make itself permanent.
+
+**Re-reading a withheld file.** Once a file's contents are withheld as injected, a shell (or other non-read) call that names the same file later in the session asks (`flow.reread_withheld`). Measured on Gemini CLI: with its README withheld, the agent printed it through a ROT13 one-liner "without triggering policy". A plain read tool is not affected; its result is probed again.
 
 Sessions are the agent's own session id for hook traffic, and the launching agent's process for MCP gateway traffic, so taint never crosses between agents.
 
@@ -636,7 +638,7 @@ plugin into Interlock's own environment, e.g. `pipx inject interlockd <package>`
 ## 8. Known limitations
 
 - The optional judge is off by default. When enabled, some of its thresholds are still being calibrated; expect an `ask` on some actions you plainly requested (answering the confirmation resolves it).
-- Post-action withholding is verified on Claude Code and Codex. Cursor can replace results only for MCP tools; other Cursor results get a warning.
+- Post-action withholding is verified on Claude Code, Codex, Copilot CLI and Gemini CLI. Cursor can replace results only for MCP tools; other Cursor results get a warning.
 - Kiro has no native ask and ignores PostToolUse output, so on Kiro an `ask` renders as a block with a notice, and post-action warnings are record-only (`interlock log`, review index).
 - The Decider server binds loopback without auth and handles one request at a time. It is a dev-grade local dependency.
 - `interlock log` shows rule ids and probabilities, not prose rationales. The explainer is planned.

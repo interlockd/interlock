@@ -54,8 +54,8 @@ class Finding:
 def _load(path: Path) -> Any:
     try:
         if path.suffix == ".toml":
-            return tomllib.loads(path.read_text())
-        text = path.read_text()
+            return tomllib.loads(path.read_text(encoding="utf-8"))
+        text = path.read_text(encoding="utf-8")
         return json.loads(text) if text.strip() else {}
     except (OSError, ValueError, tomllib.TOMLDecodeError):
         return None
@@ -292,14 +292,14 @@ def check_instruction_files(project: Path, *, max_files: int = 200) -> list[Find
     for path in sorted(project.rglob("*")):
         if seen >= max_files:
             break
-        rel = "/" + str(path.relative_to(project))
+        rel = "/" + path.relative_to(project).as_posix()
         if any(part in (".git", "node_modules", ".venv", "venv", "dist", "build") for part in path.parts):
             continue
         if not path.is_file() or not (path.name in INSTRUCTION_NAMES or any(d in rel for d in INSTRUCTION_DIRS)):
             continue
         seen += 1
         try:
-            text = path.read_text(errors="replace")[:200_000]
+            text = path.read_text(errors="replace", encoding="utf-8")[:200_000]
         except OSError:
             continue
         score, hits = heuristic_score(text)
@@ -392,7 +392,7 @@ def to_sarif(r: ScanResult, project: Path) -> dict:
                                   "defaultConfiguration": {"level": level[f.severity]}})
         src = f.source.split(" [project", 1)[0] if f.source else ""
         try:
-            uri = str(Path(src).resolve().relative_to(project)) if src else ""
+            uri = Path(src).resolve().relative_to(project).as_posix() if src else ""
         except ValueError:
             uri = ""
         loc = [{"physicalLocation": {"artifactLocation": {"uri": uri}}}] if uri else []

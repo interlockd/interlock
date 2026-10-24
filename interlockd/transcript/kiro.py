@@ -39,7 +39,7 @@ class KiroTranscript:
             return {}
         meta = p.with_name("session.json")
         try:
-            return json.loads(meta.read_text()) if meta.exists() else {}
+            return json.loads(meta.read_text(encoding="utf-8")) if meta.exists() else {}
         except json.JSONDecodeError:
             return {}
 

@@ -14,6 +14,7 @@ WHY: dict[str, str] = {
     "egress.unknown_host": "Data is going to a host outside your allowlist; it may be fine, so the judge (or you) decides.",
     "egress.upload_file_body": "A file's contents are being sent in a request body.",
     "egress.upload_sensitive_file": "A secret file (keys, .env, credentials) is being sent off the machine.",
+    "flow.reread_withheld": "A tool result was withheld earlier in this session because it carried instructions the user did not give; this call reads the same file another way (a shell command, an encoding), which would hand those instructions to the agent anyway.",
     "flow.memory_poisoning": "This session took in untrusted content and is now writing something every future session reads (an instruction file or agent memory); an injected instruction would persist.",
     "memory.instruction_file_write": "Agent instruction files (CLAUDE.md, AGENTS.md, ...) are read into every future session; this write is recorded.",
     "memory.injected_instructions": "The content written to an agent instruction file reads like instructions aimed at the agent.",

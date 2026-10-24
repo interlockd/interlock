@@ -12,7 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-import os
+import platform
 import queue
 import threading
 import time
@@ -75,7 +75,7 @@ def span_from_record(rec: dict) -> dict:
 def payload(spans: list[dict]) -> dict:
     return {"resourceSpans": [{
         "resource": {"attributes": [_attr("service.name", "interlock"), _attr("service.version", __version__),
-                                    _attr("host.name", os.uname().nodename)]},
+                                    _attr("host.name", platform.node())]},
         "scopeSpans": [{"scope": {"name": "interlockd", "version": __version__}, "spans": spans}]}]}
 
 

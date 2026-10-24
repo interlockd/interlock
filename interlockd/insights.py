@@ -97,7 +97,7 @@ def add_gateway_log(r: Report, log: Path, *, now: datetime | None = None) -> Non
     if not log.exists():
         return
     cutoff = ((now or datetime.now(UTC)) - timedelta(days=r.days)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    for line in log.read_text(errors="replace").splitlines():
+    for line in log.read_text(encoding="utf-8", errors="replace").splitlines():
         if line[:20] < cutoff:
             continue
         try:
@@ -178,14 +178,14 @@ def expected_shim(harness: str) -> str | None:
     from .cli import CLAUDE_SHIM_SRC, HOOK_SHIMS
 
     if harness in ("claude-code", "codex", "cursor", "gemini-cli", "copilot-cli", "windsurf", "antigravity"):
-        return CLAUDE_SHIM_SRC.read_text().replace("__HARNESS__", harness)
+        return CLAUDE_SHIM_SRC.read_text(encoding="utf-8").replace("__HARNESS__", harness)
     if harness == "kiro":
-        return HOOK_SHIMS["sh"].read_text()
+        return HOOK_SHIMS["sh"].read_text(encoding="utf-8")
     if harness == "opencode":
         from . import __version__
         from .cli import OPENCODE_PLUGIN_SRC
 
-        return OPENCODE_PLUGIN_SRC.read_text().replace("__VERSION__", __version__)
+        return OPENCODE_PLUGIN_SRC.read_text(encoding="utf-8").replace("__VERSION__", __version__)
     return None
 
 
@@ -200,7 +200,7 @@ def hook_integrity(home: Path) -> list[dict[str, str]]:
         f, shim = Path(hk["file"]), Path(hk["marker"])
         row = {"harness": hk["harness"], "file": str(f), "problem": "", "detail": str(f)}
         try:
-            text = f.read_text(errors="replace") if f.exists() else ""
+            text = f.read_text(encoding="utf-8", errors="replace") if f.exists() else ""
         except OSError:
             text = ""
         if hk["marker"] not in text:
@@ -221,7 +221,7 @@ def shim_state(shim: Path, harness: str) -> str:
     if not shim.exists():
         return "shim_missing"
     want = expected_shim(harness)
-    have = shim.read_text(errors="replace")
+    have = shim.read_text(encoding="utf-8", errors="replace")
     if want is None or have == want:
         return ""
     return "shim_outdated" if _VERSION_LINE.sub("", have) == _VERSION_LINE.sub("", want) else "shim_modified"
@@ -240,7 +240,7 @@ def refresh_outdated_shims(home: Path) -> list[str]:
             man = Manifest.load(home)
             for hk in (man.hooks if man else []):
                 if hk["harness"] == h["harness"] and (want := expected_shim(h["harness"])) is not None:
-                    Path(hk["marker"]).write_text(want)
+                    Path(hk["marker"]).write_text(want, encoding="utf-8")
                     done.append(hk["marker"])
     return done
 
@@ -249,7 +249,7 @@ def _has_interlock_hook(f: Path, home: Path) -> str | None:
     """The shim path an existing hook file points at, if it is one of ours (covers installs made before the manifest)."""
     if not f.exists():
         return None
-    text = f.read_text(errors="replace")
+    text = f.read_text(encoding="utf-8", errors="replace")
     for name in ("claude-code", "codex", "cursor", "gemini-cli", "copilot-cli", "windsurf", "antigravity", "kiro"):
         shim_dir = str(home / "adapters" / name)
         if shim_dir in text:
@@ -291,6 +291,9 @@ def run_doctor(home: Path, listen: str, workspace_root: str | None = None) -> li
     token = home / "token"
     if not token.exists():
         out.append(Check(False, "token", f"{token} missing", "run `interlock init`"))
+    elif not hasattr(os, "getuid"):        # Windows: no POSIX modes; the user profile's ACL is what protects it
+        out.append(Check(True, "token", f"{token} (Windows: protected by your user profile's permissions, not checked)",
+                         warn=True))
     else:
         mode = stat.S_IMODE(token.stat().st_mode)
         out.append(Check(mode & 0o077 == 0, "token", f"{token} mode {oct(mode)}", f"chmod 600 {token}"))
@@ -381,7 +384,7 @@ def run_doctor(home: Path, listen: str, workspace_root: str | None = None) -> li
 
     log = home / "hook.log"
     if log.exists():
-        recent = [ln for ln in log.read_text(errors="replace").splitlines()[-200:] if "unjudged" in ln or "inert" in ln]
+        recent = [ln for ln in log.read_text(errors="replace", encoding="utf-8").splitlines()[-200:] if "unjudged" in ln or "inert" in ln]
         cutoff = (datetime.now(UTC) - timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
         last_day = [ln for ln in recent if ln[:20] >= cutoff]
         if last_day:

@@ -28,8 +28,8 @@ def test_purls():
 
 def test_bom(sandbox):  # noqa: F811
     home, proj = sandbox
-    (home / ".codex" / "config.toml").write_text((home / ".codex" / "config.toml").read_text().replace(
-        'sandbox_mode', 'model = "gpt-x"\nsandbox_mode', 1))
+    (home / ".codex" / "config.toml").write_text((home / ".codex" / "config.toml").read_text(encoding="utf-8").replace(
+        'sandbox_mode', 'model = "gpt-x"\nsandbox_mode', 1), encoding="utf-8")
     bom = build(home, home / ".interlock", proj)
     assert bom["bomFormat"] == "CycloneDX" and bom["specVersion"] == "1.6" and bom["serialNumber"].startswith("urn:uuid:")
     comps = {c["bom-ref"]: c for c in bom["components"]}

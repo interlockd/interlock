@@ -17,6 +17,7 @@ from interlockd.mcp_server import TOOLS, InterlockMCP
 def mcp(tmp_path, monkeypatch):
     home = tmp_path / "home"; home.mkdir()
     monkeypatch.setenv("HOME", str(home)); monkeypatch.setenv("PATH", "/usr/bin:/bin"); monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("USERPROFILE", str(home)); monkeypatch.setenv("PATH", "/usr/bin:/bin"); monkeypatch.chdir(tmp_path)   # Windows: Path.home()
     s = Settings(home=home / ".interlock"); s.listen = "127.0.0.1:9"
     return InterlockMCP(s)
 
@@ -91,28 +92,29 @@ def test_init_mcp_registers_and_uninstall_removes(tmp_path, monkeypatch):
     for d in (".cursor", ".codex", ".gemini", ".kiro/settings"):
         (home / d).mkdir(parents=True)
     toml = 'model = "x"\n\n[mcp_servers.other]\ncommand = "other"\n'
-    (home / ".codex" / "config.toml").write_text(toml)
-    (home / ".gemini" / "settings.json").write_text(json.dumps({"theme": "dark", "mcpServers": {"mine": {"command": "m"}}}))
+    (home / ".codex" / "config.toml").write_text(toml, encoding="utf-8")
+    (home / ".gemini" / "settings.json").write_text(json.dumps({"theme": "dark", "mcpServers": {"mine": {"command": "m"}}}), encoding="utf-8")
     proj = tmp_path / "ws"; (proj / ".kiro").mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home)); monkeypatch.setenv("INTERLOCK_HOME", str(home / ".interlock"))
+    monkeypatch.setenv("USERPROFILE", str(home)); monkeypatch.setenv("INTERLOCK_HOME", str(home / ".interlock"))   # Windows: Path.home()
     monkeypatch.setenv("PATH", "/usr/bin:/bin"); monkeypatch.chdir(proj)
 
     assert main(["init", "--yes", "--no-service", "--mcp", "--harness", "codex,cursor,gemini-cli,kiro"]) == 0
-    t = (home / ".codex" / "config.toml").read_text()
+    t = (home / ".codex" / "config.toml").read_text(encoding="utf-8")
     assert "[mcp_servers.interlock]" in t and "[mcp_servers.other]" in t and '"-m", "interlockd", "mcp"' in t
     import tomllib
     assert tomllib.loads(t)["mcp_servers"]["interlock"]["args"] == ["-m", "interlockd", "mcp"]
-    assert json.loads((home / ".cursor" / "mcp.json").read_text())["mcpServers"]["interlock"]["args"][-1] == "mcp"
-    g = json.loads((home / ".gemini" / "settings.json").read_text())
+    assert json.loads((home / ".cursor" / "mcp.json").read_text(encoding="utf-8"))["mcpServers"]["interlock"]["args"][-1] == "mcp"
+    g = json.loads((home / ".gemini" / "settings.json").read_text(encoding="utf-8"))
     assert set(g["mcpServers"]) == {"mine", "interlock"} and g["theme"] == "dark"
-    assert "interlock" in json.loads((home / ".kiro" / "settings" / "mcp.json").read_text())["mcpServers"]
+    assert "interlock" in json.loads((home / ".kiro" / "settings" / "mcp.json").read_text(encoding="utf-8"))["mcpServers"]
     assert main(["init", "--yes", "--no-service", "--mcp", "--harness", "codex"]) == 0       # idempotent
-    assert (home / ".codex" / "config.toml").read_text().count("[mcp_servers.interlock]") == 1
+    assert (home / ".codex" / "config.toml").read_text(encoding="utf-8").count("[mcp_servers.interlock]") == 1
 
     assert main(["uninstall", "--yes"]) == 0
-    assert (home / ".codex" / "config.toml").read_text() == toml
+    assert (home / ".codex" / "config.toml").read_text(encoding="utf-8") == toml
     assert not (home / ".cursor" / "mcp.json").exists()                 # init created it
-    assert json.loads((home / ".gemini" / "settings.json").read_text())["mcpServers"] == {"mine": {"command": "m"}}
+    assert json.loads((home / ".gemini" / "settings.json").read_text(encoding="utf-8"))["mcpServers"] == {"mine": {"command": "m"}}
 
 
 def test_claude_registration_uses_its_cli(monkeypatch):

@@ -214,7 +214,7 @@ def test_ask_resolves_via_transcript_confirmation_on_kiro(settings, stub, kiro_s
     assert v.disposition == "ask" and v.notice and "confirmation" in v.notice      # first pass: ask, notice tells the agent to ask the user
     # the user answers in chat; the harness appends it to the transcript
     path = kiro_sessions / "wshash" / SESSION / "messages.jsonl"
-    with open(path, "a") as f:
+    with open(path, "a", encoding="utf-8") as f:
         f.write(_json.dumps({"id": "9", "payload": {"type": "user", "content": "Yes, append it and restart the daemon"}}) + "\n")
     v2 = d.decide(_bash(cmd))
     assert v2.disposition == "allow" and v2.notice is None

@@ -103,7 +103,7 @@ def cmd_serve(args) -> int:
         print(f"unix socket unavailable ({e}); serving on TCP only")
         sock, server = None, ApiServer(daemon, token, host, port)
     (s.home / "daemon.json").write_text(json.dumps({"listen": s.listen, "pid": os.getpid(), "version": __version__,
-                                                    **({"socket": sock} if sock else {})}))
+                                                    **({"socket": sock} if sock else {})}), encoding="utf-8")
     print(f"interlockd {__version__} listening on http://{host}:{port}  mode={daemon.mode} profile={s.profile}")
     print(f"token: {s.token_path}   spool: {s.spool_dir}" + (f"   dynamodb: {s.dynamodb_table}" if repo else "   repository: spool only"))
 
@@ -217,7 +217,7 @@ def _install_shared_shim(s: Settings, harness: str) -> Path:
     shim_dir = s.home / "adapters" / harness
     shim_dir.mkdir(parents=True, exist_ok=True)
     shim = shim_dir / "interlock-hook.sh"
-    shim.write_text(CLAUDE_SHIM_SRC.read_text().replace("__HARNESS__", harness))
+    shim.write_text(CLAUDE_SHIM_SRC.read_text(encoding="utf-8").replace("__HARNESS__", harness), encoding="utf-8")
     shim.chmod(0o755)
     return shim
 
@@ -244,19 +244,19 @@ def _merge_hook_groups(existing: dict, ours: dict, marker: str) -> dict:
 def _write_claude_hooks(s: Settings, target: Path) -> Path:
     shim = _install_shared_shim(s, "claude-code")
     target.parent.mkdir(parents=True, exist_ok=True)
-    existing = json.loads(target.read_text()) if target.exists() and target.read_text().strip() else {}
+    existing = json.loads(target.read_text(encoding="utf-8")) if target.exists() and target.read_text(encoding="utf-8").strip() else {}
     merged = _merge_hook_groups(existing, _hook_groups(shim, CLAUDE_PRE_MATCHER, CLAUDE_POST_MATCHER), str(shim))
-    target.write_text(json.dumps(merged, indent=2) + "\n")
+    target.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
     return shim
 
 
 def _write_codex_hooks(s: Settings, target: Path) -> Path:
     shim = _install_shared_shim(s, "codex")
     target.parent.mkdir(parents=True, exist_ok=True)
-    existing = json.loads(target.read_text()) if target.exists() and target.read_text().strip() else {}
+    existing = json.loads(target.read_text(encoding="utf-8")) if target.exists() and target.read_text(encoding="utf-8").strip() else {}
     merged = _merge_hook_groups(existing, _hook_groups(shim, CODEX_PRE_MATCHER, CODEX_POST_MATCHER, status=True), str(shim))
     merged.setdefault("description", "Interlock pre/post-action gate")
-    target.write_text(json.dumps(merged, indent=2) + "\n")
+    target.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
     return shim
 
 
@@ -282,7 +282,7 @@ def _write_kiro_hooks(s: Settings, root: Path, runtime: str = "sh", custom_shim:
     hooks_dir = root / ".kiro" / "hooks"
     hooks_dir.mkdir(parents=True, exist_ok=True)
     target = hooks_dir / "interlock.json"
-    target.write_text(json.dumps(hook, indent=2) + "\n")
+    target.write_text(json.dumps(hook, indent=2) + "\n", encoding="utf-8")
     return shim, target
 
 
@@ -290,11 +290,11 @@ def _write_cursor_hooks(s: Settings, target: Path) -> Path:
     """~/.cursor/hooks.json: one generic preToolUse/postToolUse pair (cursor.com/docs/agent/hooks)."""
     shim = _install_shared_shim(s, "cursor")
     target.parent.mkdir(parents=True, exist_ok=True)
-    existing = json.loads(target.read_text()) if target.exists() and target.read_text().strip() else {}
+    existing = json.loads(target.read_text(encoding="utf-8")) if target.exists() and target.read_text(encoding="utf-8").strip() else {}
     entry = {"command": f"sh {shim}", "type": "command", "timeout": 5, "matcher": "*"}
     merged = _merge_hook_groups(existing, {"preToolUse": [dict(entry)], "postToolUse": [dict(entry)]}, str(shim))
     merged.setdefault("version", 1)
-    target.write_text(json.dumps(merged, indent=2) + "\n")
+    target.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
     return shim
 
 
@@ -302,12 +302,12 @@ def _write_gemini_hooks(s: Settings, target: Path) -> Path:
     """~/.gemini/settings.json: BeforeTool/AfterTool on every tool (geminicli.com/docs/hooks); other settings kept."""
     shim = _install_shared_shim(s, "gemini-cli")
     target.parent.mkdir(parents=True, exist_ok=True)
-    existing = json.loads(target.read_text()) if target.exists() and target.read_text().strip() else {}
+    existing = json.loads(target.read_text(encoding="utf-8")) if target.exists() and target.read_text(encoding="utf-8").strip() else {}
     handler = {"name": "interlock", "type": "command", "command": f"sh {shim}", "timeout": 5000,
                "description": "Interlock pre/post-action gate"}
     merged = _merge_hook_groups(existing, {"BeforeTool": [{"matcher": ".*", "hooks": [dict(handler)]}],
                                            "AfterTool": [{"matcher": ".*", "hooks": [dict(handler)]}]}, str(shim))
-    target.write_text(json.dumps(merged, indent=2) + "\n")
+    target.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
     return shim
 
 
@@ -315,12 +315,12 @@ def _write_copilot_hooks(s: Settings, target: Path) -> Path:
     """~/.copilot/hooks/interlock.json (docs.github.com/en/copilot/reference/hooks-configuration)."""
     shim = _install_shared_shim(s, "copilot-cli")
     target.parent.mkdir(parents=True, exist_ok=True)
-    existing = json.loads(target.read_text()) if target.exists() and target.read_text().strip() else {}
+    existing = json.loads(target.read_text(encoding="utf-8")) if target.exists() and target.read_text(encoding="utf-8").strip() else {}
     merged = _merge_hook_groups(existing, {
         "preToolUse": [{"type": "command", "bash": f"sh {shim} pre", "timeoutSec": 5}],
         "postToolUse": [{"type": "command", "bash": f"sh {shim} post", "timeoutSec": 5}]}, str(shim))
     merged.setdefault("version", 1)
-    target.write_text(json.dumps(merged, indent=2) + "\n")
+    target.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
     return shim
 
 
@@ -328,11 +328,11 @@ def _write_windsurf_hooks(s: Settings, target: Path) -> Path:
     """~/.codeium/windsurf/hooks.json (docs.devin.ai/desktop/cascade/hooks): block by exit 2."""
     shim = _install_shared_shim(s, "windsurf")
     target.parent.mkdir(parents=True, exist_ok=True)
-    existing = json.loads(target.read_text()) if target.exists() and target.read_text().strip() else {}
+    existing = json.loads(target.read_text(encoding="utf-8")) if target.exists() and target.read_text(encoding="utf-8").strip() else {}
     entry = {"command": f"sh {shim} pre", "show_output": True}
     merged = _merge_hook_groups(existing, {e: [dict(entry)] for e in
                                            ("pre_run_command", "pre_mcp_tool_use", "pre_read_code", "pre_write_code")}, str(shim))
-    target.write_text(json.dumps(merged, indent=2) + "\n")
+    target.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
     return shim
 
 
@@ -340,11 +340,11 @@ def _write_antigravity_hooks(s: Settings, target: Path) -> Path:
     """~/.gemini/config/hooks.json (antigravity.google/docs/hooks): a named top-level group, `interlock`."""
     shim = _install_shared_shim(s, "antigravity")
     target.parent.mkdir(parents=True, exist_ok=True)
-    data = json.loads(target.read_text()) if target.exists() and target.read_text().strip() else {}
+    data = json.loads(target.read_text(encoding="utf-8")) if target.exists() and target.read_text(encoding="utf-8").strip() else {}
     data["interlock"] = {"enabled": True,
                          "PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": f"sh {shim} pre", "timeout": 10}]}],
                          "PostToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": f"sh {shim} post", "timeout": 10}]}]}
-    target.write_text(json.dumps(data, indent=2) + "\n")
+    target.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     return shim
 
 
@@ -354,7 +354,7 @@ OPENCODE_PLUGIN_SRC = SHIMS_ROOT / "opencode" / "interlock.js"
 def _write_opencode_plugin(s: Settings, target: Path) -> Path:
     """~/.config/opencode/plugins/interlock.js: OpenCode loads every plugin file in that directory."""
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(OPENCODE_PLUGIN_SRC.read_text().replace("__VERSION__", __version__))
+    target.write_text(OPENCODE_PLUGIN_SRC.read_text(encoding="utf-8").replace("__VERSION__", __version__), encoding="utf-8")
     return target
 
 
@@ -385,7 +385,7 @@ def cmd_install(args) -> int:
     s = _settings(args)
     s.home.mkdir(parents=True, exist_ok=True)
     load_or_create_token(s.token_path)
-    (s.home / "fail-mode.json").write_text(json.dumps(s.fail_mode, indent=2))
+    (s.home / "fail-mode.json").write_text(json.dumps(s.fail_mode, indent=2), encoding="utf-8")
     if args.claude_code:
         return _install_claude_code(s, args)
     if args.codex:
@@ -562,7 +562,7 @@ def cmd_test(args) -> int:
         "policy_sha256": policy.sha256[:12],
     }
     if args.json:
-        Path(args.json).expanduser().write_text(json.dumps(report, indent=2) + "\n")
+        Path(args.json).expanduser().write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
         if not args.quiet:
             print(f"\nJSON report written to {args.json}")
 
@@ -610,7 +610,7 @@ def _build_judge_backend(spec: str):
 
     if spec.startswith("replay:"):
         path = Path(spec[len("replay:"):]).expanduser()
-        recorded = json.loads(path.read_text()) if path.exists() else {}
+        recorded = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
         return ReplayBackend(recorded=recorded), f"replay:{path}"
     if spec.startswith(("http://", "https://")):
         return StrandsDeciderBackend(base_url=spec), f"decider:{spec}"
@@ -682,7 +682,7 @@ def _write_bands(path, band_reports, *, force: bool, quiet: bool) -> None:
     from . import calibration as CAL
 
     p = Path(path).expanduser()
-    doc = (yaml.safe_load(p.read_text()) if p.exists() else {}) or {}
+    doc = (yaml.safe_load(p.read_text(encoding="utf-8")) if p.exists() else {}) or {}
     bands = (doc.get("judge") or {}).get("bands") or {}
     changes, skipped, updates = [], [], {}
     for qid, br in band_reports.items():
@@ -702,13 +702,13 @@ def _write_bands(path, band_reports, *, force: bool, quiet: bool) -> None:
         for qid in skipped:
             print(f"  refused {qid}: does not meet targets on held-out (pass --force to write anyway)")
     if updates:
-        text = p.read_text() if p.exists() else ""
+        text = p.read_text(encoding="utf-8") if p.exists() else ""
         edited = _set_band_fields(text, updates) if text.strip() else None
         if edited is None:  # new/structureless file: nothing to preserve, write a plain dump
             doc.setdefault("judge", {}).setdefault("bands", {}).update(updates)
-            p.write_text(yaml.safe_dump(doc, sort_keys=False))
+            p.write_text(yaml.safe_dump(doc, sort_keys=False), encoding="utf-8")
         else:
-            p.write_text(edited)
+            p.write_text(edited, encoding="utf-8")
         if not quiet:
             print(f"wrote {len(changes)} band field(s) to {p}")
     elif not quiet and not skipped:
@@ -805,7 +805,7 @@ def cmd_calibrate(args) -> int:
 
     if args.dump_scores:
         dump_path = Path(args.dump_scores).expanduser()
-        with dump_path.open("w") as fh:
+        with dump_path.open("w", encoding="utf-8") as fh:
             for s in report.scores:
                 case = cases_by_id.get(s.case_id, {})
                 rec = {
@@ -821,7 +821,7 @@ def cmd_calibrate(args) -> int:
             print(f"\nper-case scores written to {dump_path} ({len(report.scores)} rows)")
 
     if args.json:
-        Path(args.json).expanduser().write_text(json.dumps(out, indent=2) + "\n")
+        Path(args.json).expanduser().write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
         if not args.quiet:
             print(f"\nJSON report written to {args.json}")
     return 0
@@ -973,7 +973,7 @@ def cmd_corpus_import(args) -> int:
     if not src.exists():
         print(f"input not found: {src}", file=sys.stderr)
         return 2
-    raw = json.loads(src.read_text()) if src.suffix == ".json" else C.read_jsonl(src)
+    raw = json.loads(src.read_text(encoding="utf-8")) if src.suffix == ".json" else C.read_jsonl(src)
     items = raw if isinstance(raw, list) else raw.get("items") or raw.get("data") or []
     res = importer(items)
     out = Path(args.out or (Path.cwd() / "corpus" / "imported" / f"{args.from_}.jsonl")).expanduser()
@@ -1065,7 +1065,7 @@ def cmd_ogr_run(args) -> int:
     out.parent.mkdir(parents=True, exist_ok=True)
     invalid = 0
     by_suite: dict[str, dict[str, int]] = defaultdict(lambda: {"n": 0, "allow": 0, "block": 0, "labelled": 0, "correct": 0})
-    with out.open("w") as fh:
+    with out.open("w", encoding="utf-8") as fh:
         for c in cases:
             try:
                 verdict = drive(c["guard_event"])
@@ -1122,7 +1122,7 @@ def cmd_ogr_validate(args) -> int:
     schema = load_schema()
     total = invalid = 0
     problems: list[str] = []
-    for lineno, line in enumerate(path.read_text().splitlines(), 1):
+    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         line = line.strip()
         if not line:
             continue
@@ -1220,11 +1220,11 @@ def cmd_init(args) -> int:
 
     s.home.mkdir(parents=True, exist_ok=True)
     load_or_create_token(s.token_path)
-    (s.home / "fail-mode.json").write_text(json.dumps(s.fail_mode, indent=2))
+    (s.home / "fail-mode.json").write_text(json.dumps(s.fail_mode, indent=2), encoding="utf-8")
     man = Manifest.load(s.home) or Manifest(created_at=now())
     man.version = __version__
     if not policy_path.exists():
-        policy_path.write_text(STARTER_POLICY.replace("mode: shadow", "mode: enforce") if args.enforce else STARTER_POLICY)
+        policy_path.write_text(STARTER_POLICY.replace("mode: shadow", "mode: enforce") if args.enforce else STARTER_POLICY, encoding="utf-8")
         man.files = sorted(set(man.files) | {str(policy_path)})
     elif args.enforce:
         from .onboard import set_mode
@@ -1287,7 +1287,7 @@ def cmd_init(args) -> int:
         elif chosen:
             from .selftest import run as selftest
 
-            rows, _ = selftest(s.listen, s.token_path.read_text().strip(), [chosen[0].name])
+            rows, _ = selftest(s.listen, s.token_path.read_text(encoding="utf-8").strip(), [chosen[0].name])
             good = sum(r.ok for r in rows)
             print(f"selftest    {chosen[0].name:<12} {good}/{len(rows)} checks passed through the live daemon"
                   + ("" if good == len(rows) else "  (run `interlock selftest` for details)"))
@@ -1327,22 +1327,22 @@ def cmd_uninstall(args) -> int:
     for h in hooks:
         f = Path(h["file"])
         if h["harness"] in ("kiro", "opencode"):
-            if f.exists() and (h["marker"] in f.read_text() or h["harness"] == "opencode"):
+            if f.exists() and (h["marker"] in f.read_text(encoding="utf-8") or h["harness"] == "opencode"):
                 f.unlink()
                 print(f"removed     {f}")
         elif h["harness"] == "antigravity":
-            if f.exists() and f.read_text().strip():
-                data = json.loads(f.read_text())
+            if f.exists() and f.read_text(encoding="utf-8").strip():
+                data = json.loads(f.read_text(encoding="utf-8"))
                 if "interlock" in data:
                     data.pop("interlock")
                     if data or not h.get("created"):
-                        f.write_text(json.dumps(data, indent=2) + "\n")
+                        f.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
                     else:
                         f.unlink()
                     print(f"cleaned     {f}")
         elif remove_hook_groups(f, h["marker"]):
             print(f"cleaned     {f}")
-            if h.get("created") and f.exists() and json.loads(f.read_text() or "{}") == {}:
+            if h.get("created") and f.exists() and json.loads(f.read_text(encoding="utf-8") or "{}") == {}:
                 f.unlink()
     if man and man.gateway:
         from . import gateway
@@ -1460,7 +1460,7 @@ def cmd_scan(args) -> int:
     if args.sarif:
         from .scan import to_sarif
 
-        Path(args.sarif).write_text(json.dumps(to_sarif(r, Path(args.project or Path.cwd()).expanduser().resolve()), indent=2))
+        Path(args.sarif).write_text(json.dumps(to_sarif(r, Path(args.project or Path.cwd()).expanduser().resolve()), indent=2), encoding="utf-8")
     worst = min((SEVERITY_ORDER[f.severity] for f in r.findings), default=99)
     return 1 if args.fail_on != "never" and worst <= SEVERITY_ORDER[args.fail_on] else 0
 
@@ -1554,7 +1554,7 @@ def cmd_aibom(args) -> int:
     s = _settings(args)
     bom = build(Path.home(), s.home, Path(args.project or Path.cwd()).expanduser().resolve())
     if args.output:
-        Path(args.output).write_text(to_json(bom))
+        Path(args.output).write_text(to_json(bom), encoding="utf-8")
         print(summary(bom)); print(f"written: {args.output}")
     else:
         print(to_json(bom))
@@ -1625,7 +1625,7 @@ def cmd_selftest(args) -> int:
 
     s = _settings(args)
     try:
-        token = s.token_path.read_text().strip()
+        token = s.token_path.read_text(encoding="utf-8").strip()
     except OSError:
         print("no token: run `interlock init` first"); return 1
     man = Manifest.load(s.home)
@@ -1892,19 +1892,25 @@ def cmd_bench(args) -> int:
         print(f"\n  the shim costs {extra:+.1f} ms over a bare sh + curl at p50; Interlock's own share is the http row"
               f" ({r['http']['p50']} ms), the rest is process spawn on this machine")
     if args.json:
-        Path(args.json).write_text(json.dumps(r, indent=2))
+        Path(args.json).write_text(json.dumps(r, indent=2), encoding="utf-8")
     return 0
 
 
+# Native Windows runs the daemon, policy, audit, scan and the SDKs. Agent hooks (POSIX shell shims), the OS sandbox and
+# the local judge are macOS/Linux only for now; on Windows they run inside WSL2.
+WINDOWS_UNSUPPORTED = {"init", "install", "gateway", "sandbox", "selftest", "capture", "judge"}
 WINDOWS_MESSAGE = (
-    "Interlock runs on macOS and Linux. On Windows, install it inside WSL2 (Ubuntu) and run your agents from the WSL\n"
-    "terminal: `pipx install interlockd && interlock init`. Native Windows support is planned.")
+    "`interlock {cmd}` isn't available on native Windows yet: agent hooks, the sandbox and the local judge need macOS\n"
+    "or Linux. On Windows, install Interlock inside WSL2 (Ubuntu) and run your agents from the WSL terminal:\n"
+    "`pipx install interlockd && interlock init`. Natively, `interlock start` runs the daemon for the Python and\n"
+    "JavaScript SDKs.")
 
 
 def main(argv: list[str] | None = None) -> int:
-    if sys.platform == "win32" and os.environ.get("INTERLOCK_ALLOW_WINDOWS") != "1":
-        print(WINDOWS_MESSAGE, file=sys.stderr)
-        return 1
+    if sys.platform == "win32":      # a redirected Windows console is cp1252: never crash printing a path or a finding
+        for stream in (sys.stdout, sys.stderr):
+            if hasattr(stream, "reconfigure"):
+                stream.reconfigure(errors="replace")
     ap = argparse.ArgumentParser(prog="interlock", description="Interlock: a pre/post-action interlock for coding agents")
     ap.add_argument("--version", action="version", version=f"interlock {__version__}")
     ap.add_argument("--home", help="Interlock home (default ~/.interlock or $INTERLOCK_HOME)")
@@ -2128,6 +2134,9 @@ def main(argv: list[str] | None = None) -> int:
 
     plugins.register_cli(sub)      # subcommands from installed plugins; a failing plugin is skipped with a warning
     args = ap.parse_args(argv)
+    if sys.platform == "win32" and args.cmd in WINDOWS_UNSUPPORTED and os.environ.get("INTERLOCK_ALLOW_WINDOWS") != "1":
+        print(WINDOWS_MESSAGE.format(cmd=args.cmd), file=sys.stderr)
+        return 1
     return args.fn(args)
 
 

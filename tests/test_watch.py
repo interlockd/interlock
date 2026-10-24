@@ -11,9 +11,9 @@ from interlockd.watch import HookWatch
 def _install(settings, tmp_path):
     shim = settings.home / "adapters" / "claude-code" / "interlock-hook.sh"
     shim.parent.mkdir(parents=True)
-    shim.write_text(CLAUDE_SHIM_SRC.read_text().replace("__HARNESS__", "claude-code"))
+    shim.write_text(CLAUDE_SHIM_SRC.read_text(encoding="utf-8").replace("__HARNESS__", "claude-code"), encoding="utf-8")
     hooks = tmp_path / "settings.json"
-    hooks.write_text(f'{{"hooks": {{"PreToolUse": [{{"hooks": [{{"command": "sh {shim}"}}]}}]}}}}')
+    hooks.write_text(f'{{"hooks": {{"PreToolUse": [{{"hooks": [{{"command": "sh {shim}"}}]}}]}}}}', encoding="utf-8")
     Manifest(created_at="2026-10-18T00:00:00Z", hooks=[{"harness": "claude-code", "file": str(hooks), "marker": str(shim),
                                                          "created": False}]).save(settings.home)
     return hooks, shim
@@ -23,16 +23,16 @@ def test_changes_are_recorded(daemon, settings, tmp_path):
     hooks, shim = _install(settings, tmp_path)
     w = HookWatch(daemon, settings.home)
     assert w.check() == []                                         # intact at start: nothing to record
-    shim.write_text(shim.read_text() + "\nexit 0\n")
+    shim.write_text(shim.read_text(encoding="utf-8") + "\nexit 0\n", encoding="utf-8")
     [rec] = w.check()
     assert rec["kind"] == "control" and rec["arguments"]["problem"] == "shim_modified"
     assert rec["findings"][0]["rule"] == "control.shim_modified"
     assert w.check() == []                                         # unchanged: recorded once
-    hooks.write_text("{}")
+    hooks.write_text("{}", encoding="utf-8")
     [rec] = w.check()
     assert rec["arguments"]["problem"] == "hook_removed"
-    shim.write_text(CLAUDE_SHIM_SRC.read_text().replace("__HARNESS__", "claude-code"))
-    hooks.write_text(f'{{"command": "sh {shim}"}}')
+    shim.write_text(CLAUDE_SHIM_SRC.read_text(encoding="utf-8").replace("__HARNESS__", "claude-code"), encoding="utf-8")
+    hooks.write_text(f'{{"command": "sh {shim}"}}', encoding="utf-8")
     [rec] = w.check()
     assert rec["arguments"]["problem"] == "restored" and rec["disposition"] == "allow"
     v = daemon.spool.verify()
@@ -43,14 +43,14 @@ def test_changes_are_recorded(daemon, settings, tmp_path):
 
 def test_first_check_records_existing_problems(daemon, settings, tmp_path):
     hooks, _ = _install(settings, tmp_path)
-    hooks.write_text("{}")
+    hooks.write_text("{}", encoding="utf-8")
     [rec] = HookWatch(daemon, settings.home).check()
     assert rec["arguments"]["problem"] == "hook_removed"
 
 
 def test_upgrade_leftovers_are_refreshed_not_flagged(daemon, settings, tmp_path):
     _, shim = _install(settings, tmp_path)
-    current = shim.read_text()
-    shim.write_text(current.replace('VERSION="', 'VERSION="0.0.9-', 1))
+    current = shim.read_text(encoding="utf-8")
+    shim.write_text(current.replace('VERSION="', 'VERSION="0.0.9-', 1), encoding="utf-8")
     assert HookWatch(daemon, settings.home).check() == []
-    assert shim.read_text() == current
+    assert shim.read_text(encoding="utf-8") == current

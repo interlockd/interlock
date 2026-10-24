@@ -11,6 +11,7 @@ import os
 import re
 from urllib.parse import urlparse
 
+from ..paths import home as home_dir
 from ..paths import is_protected, is_sensitive, is_under, normalize_path
 from ..policy import Policy
 from . import DetResult, rule
@@ -339,39 +340,43 @@ def check_egress(parsed: Parsed, res: DetResult, policy: Policy, cwd: str | None
 
 
 # ------------------------------------------------------------------------------------------------- persistence pack
+# Windows: the per-user and all-users Startup folders run whatever is put there at logon
+WINDOWS_AUTOSTART = ("/start menu/programs/startup/", "/microsoft/windows/start menu/programs/startup")
 def _persistence_path_check(path: str, res: DetResult, policy: Policy, roots: list[str], where: str) -> None:
-    p = path
+    # markers compare case-insensitively: on macOS and Windows ~/.CLAUDE/settings.json is ~/.claude/settings.json
+    p = path.lower()
     base = os.path.basename(p)
-    rel_home = p.replace(os.path.expanduser("~"), "~", 1) if p.startswith(os.path.expanduser("~")) else p
-    if base in RC_FILES or any(rel_home.endswith(r) for r in RC_FILES) or "/etc/profile" in p or "/etc/bash" in p or "/etc/zsh" in p:
-        res.add(policy, R_PERSIST_RC, path=where, subject=p)
+    home = home_dir().lower()
+    rel_home = p.replace(home, "~", 1) if p.startswith(home) else p
+    if base in RC_FILES or any(rel_home.endswith(r) for r in RC_FILES) or (base.endswith("profile.ps1") and "powershell/" in p) or "/etc/profile" in p or "/etc/bash" in p or "/etc/zsh" in p:
+        res.add(policy, R_PERSIST_RC, path=where, subject=path)
     if "authorized_keys" in p or (rel_home.startswith("~/.ssh/") and base in ("config", "rc") and where != "read"):
-        res.add(policy, R_PERSIST_SSH_KEYS, path=where, subject=p)
-    if any(k in p for k in ("/crontab", "/cron.d/", "/etc/cron", "LaunchAgents", "LaunchDaemons", "/systemd/", ".config/autostart", "/etc/rc.local", "/etc/init.d")):
-        res.add(policy, R_PERSIST_CRON, path=where, subject=p)
+        res.add(policy, R_PERSIST_SSH_KEYS, path=where, subject=path)
+    if any(k in p for k in ("/crontab", "/cron.d/", "/etc/cron", "launchagents", "launchdaemons", "/systemd/", ".config/autostart", "/etc/rc.local", "/etc/init.d")) \
+            or any(k in p for k in WINDOWS_AUTOSTART):
+        res.add(policy, R_PERSIST_CRON, path=where, subject=path)
     if "/.git/hooks/" in p or p.endswith("/.git/config") or "/.git/config" in p:
-        res.add(policy, R_PERSIST_GIT_HOOK, path=where, subject=p)
-    home = os.path.expanduser("~")
+        res.add(policy, R_PERSIST_GIT_HOOK, path=where, subject=path)
     agent_home_dirs = (f"{home}/.kiro/", f"{home}/.claude/", f"{home}/.codex/", f"{home}/.interlock/", f"{home}/.cursor/", f"{home}/.gemini/")
     # runtime artifacts (logs, pids, the spool, session transcripts' caches) are not configuration; writing them is normal
     runtime_artifact = p.endswith((".log", ".pid", ".jsonl", ".drained", ".lock", ".tmp", "nohup.out")) or "/spool/" in p \
         or "/logs/" in p or "/sessions/" in p or "/session-index/" in p or "/tool-outputs/" in p
     protected_agent = not runtime_artifact and (
-        (is_protected(p, roots, policy.trust.protected_paths) and any(m in p for m in AGENT_CONFIG_MARKERS))
+        (is_protected(path, roots, policy.trust.protected_paths) and any(m.lower() in p for m in AGENT_CONFIG_MARKERS))
         or p.startswith(agent_home_dirs) or "/.kiro/" in p or "/.claude/" in p or "/.codex/" in p or "/.interlock/" in p)
     if protected_agent:
-        res.add(policy, R_PERSIST_AGENT_CONFIG, path=where, subject=p)
+        res.add(policy, R_PERSIST_AGENT_CONFIG, path=where, subject=path)
     elif ("/sessions/" in p or "/.claude/projects/" in p) and p.endswith((".jsonl", ".json")) and (
             "/.kiro/" in p or "/.claude/" in p or "/.codex/" in p):
-        res.add(policy, R_PERSIST_TRANSCRIPT, path=where, subject=p)
+        res.add(policy, R_PERSIST_TRANSCRIPT, path=where, subject=path)
     elif ".github/workflows" in p:
-        res.add(policy, R_PERSIST_CI, path=where, subject=p)
-    if p.startswith(("/etc/sudoers", "/etc/passwd", "/etc/shadow", "/etc/pam.d", "/Library/LaunchDaemons", "/etc/hosts")):
-        res.add(policy, R_PERSIST_SUDOERS, path=where, subject=p)
+        res.add(policy, R_PERSIST_CI, path=where, subject=path)
+    if p.startswith(("/etc/sudoers", "/etc/passwd", "/etc/shadow", "/etc/pam.d", "/library/launchdaemons", "/etc/hosts")):
+        res.add(policy, R_PERSIST_SUDOERS, path=where, subject=path)
     if not protected_agent:                      # instruction files read back into every future session
         from .memory import check_instruction_write
 
-        check_instruction_write(p, None, res, policy, where)
+        check_instruction_write(path, None, res, policy, where)
 
 
 def check_persistence_shell(parsed: Parsed, res: DetResult, policy: Policy, cwd: str | None) -> None:

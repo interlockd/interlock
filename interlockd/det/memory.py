@@ -27,9 +27,13 @@ MEMORY_TOOLS = ("*memory*/create*", "*memory*/add*", "*memory*/save*", "*memory*
                 "*memory*/write*", "*memory*/remember*", "*/remember*", "*/save_memory*", "*/add_observations*")
 
 
+_INSTRUCTION_NAMES_CI = {n.lower() for n in INSTRUCTION_NAMES}
+
+
 def is_instruction_file(path: str) -> bool:
-    name = path.rsplit("/", 1)[-1]
-    return name in INSTRUCTION_NAMES or any(d in path for d in INSTRUCTION_DIRS)
+    """Case-insensitive: macOS and Windows file systems ignore case, so claude.md is CLAUDE.md there."""
+    p = path.lower()
+    return p.rsplit("/", 1)[-1] in _INSTRUCTION_NAMES_CI or any(d in p for d in INSTRUCTION_DIRS)
 
 
 def is_memory_tool(target: str | None) -> bool:

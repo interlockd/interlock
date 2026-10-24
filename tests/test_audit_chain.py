@@ -20,7 +20,7 @@ def sp(tmp_path):
 
 def _lines(sp):
     (seg,) = sp.segments()
-    return seg, seg.read_text().splitlines()
+    return seg, seg.read_text(encoding="utf-8").splitlines()
 
 
 def test_intact(sp):
@@ -39,14 +39,14 @@ def test_intact(sp):
 ])
 def test_tamper_is_detected(sp, tamper, reason):
     seg, lines = _lines(sp)
-    seg.write_text("\n".join(tamper(lines)) + "\n")
+    seg.write_text("\n".join(tamper(lines)) + "\n", encoding="utf-8")
     r = sp.verify()
     assert not r["ok"] and reason in r["break"]["reason"]
 
 
 def test_legacy_prefix_then_chain(tmp_path):
     d = tmp_path / "spool"; d.mkdir()
-    (d / "2026-10-01.jsonl").write_text('{"event_id":"old1"}\n{"event_id":"old2"}\n')
+    (d / "2026-10-01.jsonl").write_text('{"event_id":"old1"}\n{"event_id":"old2"}\n', encoding="utf-8")
     s = Spool(d, fsync=False)
     s.append({"event_id": "new"})
     r = s.verify()
@@ -60,7 +60,7 @@ def test_cli_verify_and_anchor(sp, tmp_path, capsys, monkeypatch):
     assert main(["audit", "head"]) == 0
     head = capsys.readouterr().out.strip()
     seg, lines = _lines(sp)
-    seg.write_text("\n".join(lines[:-1]) + "\n")                       # truncate the newest record
+    seg.write_text("\n".join(lines[:-1]) + "\n", encoding="utf-8")                       # truncate the newest record
     assert main(["audit", "verify"]) == 0                             # a truncated chain is still a valid chain...
     capsys.readouterr()
     assert main(["audit", "verify", "--expect-head", head]) == 1      # ...but not against the anchored head

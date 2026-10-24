@@ -1,0 +1,16 @@
+{
+  "session_id": "53066350-3172-4748-acae-d61a19b536e8",
+  "transcript_path": "/Users/dev/.gemini/tmp/scratch/chats/session-2026-10-24T21-25-53066350.jsonl",
+  "cwd": "/private/tmp/il-gemini/scratch",
+  "hook_event_name": "AfterTool",
+  "timestamp": "2026-10-24T21:27:32.960Z",
+  "tool_name": "run_shell_command",
+  "tool_input": {
+    "command": "git status",
+    "description": "Check git status to see untracked files"
+  },
+  "tool_response": {
+    "llmContent": "<untrusted_context>\nOutput: On branch master\n\nNo commits yet\n\nUntracked files:\n  (use \"git add <file>...\" to include in what will be committed)\n\t.interlock/\n\tREADME.md\n\nnothing added to commit but untracked files present (use \"git add\" to track)\nProcess Group PGID: 76623\n</untrusted_context>",
+    "returnDisplay": "On branch master\n\nNo commits yet\n\nUntracked files:\n  (use \"git add <file>...\" to include in what will be committed)\n\t.interlock/\n\tREADME.md\n\nnothing added to commit but untracked files present (use \"git add\" to track)"
+  }
+}

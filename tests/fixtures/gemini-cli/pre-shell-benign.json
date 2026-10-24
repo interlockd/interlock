@@ -1,0 +1,12 @@
+{
+  "session_id": "53066350-3172-4748-acae-d61a19b536e8",
+  "transcript_path": "/Users/dev/.gemini/tmp/scratch/chats/session-2026-10-24T21-25-53066350.jsonl",
+  "cwd": "/private/tmp/il-gemini/scratch",
+  "hook_event_name": "BeforeTool",
+  "timestamp": "2026-10-24T21:27:32.861Z",
+  "tool_name": "run_shell_command",
+  "tool_input": {
+    "command": "git status",
+    "description": "Check git status to see untracked files"
+  }
+}

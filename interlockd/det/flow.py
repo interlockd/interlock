@@ -8,21 +8,28 @@ The session ledger keeps the first two legs with evidence; the third is checked 
   untrusted  web / network tool results, MCP results matching `flow.untrusted_sources`, any result the injection probe
              flagged
   sink       network egress (shell or web tool), git push, MCP tools matching `flow.sinks`
+
+Also per session: once a file's contents are withheld as injected, a shell (or other non-read) call that names the
+file again is asked about (`flow.reread_withheld`). Measured on Gemini CLI: the agent re-read a withheld README through
+a ROT13 one-liner.
 """
 
 from __future__ import annotations
 
+import re
 from fnmatch import fnmatchcase
 from typing import Any
 
 from ..models import Finding, InterlockEvent
+from ..paths import CASE_INSENSITIVE
 from ..policy import Policy
-from ..tiers import NETWORK_TOOLS
+from ..tiers import NETWORK_TOOLS, PATH_KEYS, READ_ONLY_TOOLS
 from . import DetResult, rule
 from .mcp import split_mcp_name
 
 R_FLOW_TRIFECTA = rule("flow.lethal_trifecta", "security.data_exfiltration", "high", "ask")
 R_FLOW_MEMORY = rule("flow.memory_poisoning", "security.memory_poisoning", "high", "ask")
+R_FLOW_REREAD = rule("flow.reread_withheld", "security.prompt_injection", "high", "ask")
 PRIVATE_RULES = {"secrets.read_sensitive_path", "secrets.dump_environment", "secrets.literal_in_result"}
 
 
@@ -63,6 +70,36 @@ def observe(event: InterlockEvent, session: dict[str, Any], policy: Policy, find
             _note(legs, "untrusted", f"result from {target}")
         if any(f.category == "security.prompt_injection" for f in findings):
             _note(legs, "untrusted", f"{name} result flagged as injected")
+
+
+def note_withheld(event: InterlockEvent, session: dict[str, Any]) -> None:
+    """Remember the file whose result was just withheld, so a second route to the same bytes can be caught."""
+    for k in PATH_KEYS:
+        v = event.tool_call.arguments.get(k)
+        if isinstance(v, str) and v.strip():
+            names = session.setdefault("withheld_paths", [])
+            if v not in names:
+                session["withheld_paths"] = (names + [v])[-10:]
+            return
+
+
+def _mentions(text: str, path: str) -> bool:
+    base = path.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]
+    flags = re.IGNORECASE if CASE_INSENSITIVE else 0        # readme.md is README.md on macOS and Windows
+    return bool(base) and re.search(rf"(?<![\w.-]){re.escape(base)}(?![\w.-])", text, flags) is not None
+
+
+def check_reread(event: InterlockEvent, res: DetResult, session: dict[str, Any], policy: Policy) -> None:
+    """Pre-action: a shell or other non-read tool that names a file whose contents were withheld this session. A
+    plain read tool is left alone: its result goes through the probe again."""
+    paths = session.get("withheld_paths")
+    if not policy.flow.enabled or not paths or event.kind != "pre_action" or event.tool_call.name in READ_ONLY_TOOLS:
+        return
+    text = " ".join(str(v) for v in event.tool_call.arguments.values() if isinstance(v, str))
+    hit = next((p for p in paths if _mentions(text, p)), None)
+    if hit:
+        res.add(policy, R_FLOW_REREAD, path="session",
+                subject=f"the contents of {hit} were withheld as injected earlier in this session; this call reads it another way")
 
 
 def is_sink(event: InterlockEvent, res: DetResult, policy: Policy) -> str | None:

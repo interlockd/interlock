@@ -10,10 +10,10 @@ from pathlib import Path
 
 def load_or_create_token(path: Path) -> str:
     if path.exists():
-        return path.read_text().strip()
+        return path.read_text(encoding="utf-8").strip()
     path.parent.mkdir(parents=True, exist_ok=True)
     token = secrets.token_urlsafe(32)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
     with os.fdopen(fd, "w") as f:
         f.write(token + "\n")
     return token
@@ -31,7 +31,7 @@ def rotate_token(path: Path) -> str:
     token = secrets.token_urlsafe(32)
     tmp = path.with_name(path.name + ".new")
     tmp.unlink(missing_ok=True)
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
     with os.fdopen(fd, "w") as f:
         f.write(token + "\n")
     os.replace(tmp, path)

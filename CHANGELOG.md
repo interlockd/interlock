@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.3 (2026-10-24)
+
+- **Security fix (macOS, Windows):** path rules now match without case where the file system ignores it. On macOS (default APFS) a write to `~/.CLAUDE/settings.json`, `.GIT/hooks/pre-commit` or `.GitHub/Workflows/ci.yml` changes the real file but was allowed. Linux is unchanged.
+- Native Windows, first part: the daemon (`interlock start | stop | status`, a detached background process), policy, audit log, `scan`, `report`, `explain`, `test` and the Python and JavaScript SDKs run on Windows without WSL2. Paths are matched the same way on every OS (`C:\Users\me\.claude\settings.json` hits the same rules as `~/.claude/settings.json`), and the Startup folder and PowerShell profiles count as persistence. Agent hooks, `interlock init`, the gateway, the sandbox and the local judge still need macOS or Linux (on Windows, WSL2); those commands say so. Verified on a Windows CI runner: the full test suite, and a live daemon (start, decisions through the Python client, `audit verify`, stop).
+- Gemini CLI adapter verified live on Gemini CLI 0.65.0: a refused force push and a withheld injected README; captured payloads replayed in tests.
+- Withheld content can't be read back another way: the local probe also scores ROT13 and base64 decodings of each tool result, and once a file is withheld, a shell call naming it in the same session asks (`flow.reread_withheld`). Found live: Gemini CLI re-read a withheld README through ROT13 "without triggering policy".
+- `interlock capture`: `--scratch` projects push nowhere; for agents that send no tool-call id (Gemini CLI), the report pairs a refused call with a later result by session and input.
+- Text files are read and written as UTF-8 on every platform.
+
 ## 0.1.2 (2026-10-24)
 
 - Managed policy: `<interlock home>/managed-policy.yaml` is applied last and can only tighten decisions (it can switch enforce on, never loosen anything). It is reloaded without a restart; a file that doesn't parse is ignored and reported by `interlock policy lint`. For device management and centrally managed machines.

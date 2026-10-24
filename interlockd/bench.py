@@ -42,9 +42,9 @@ def run(rounds: int = 3, http_calls: int = 300, shim_calls: int = 100) -> dict[s
     from .testkit import default_corpus_dir, load_cases
 
     out: dict[str, dict] = {}
-    home = Path(tempfile.mkdtemp(prefix="ilb", dir="/tmp"))      # short path: the Unix socket has a length limit
+    home = Path(tempfile.mkdtemp(prefix="ilb", dir="/tmp" if os.name != "nt" else None))   # short: socket path limit
     try:
-        (home / "token").write_text("tok\n")
+        (home / "token").write_text("tok\n", encoding="utf-8")
         s = Settings(home=home)
         pol = Policy(); pol.mode = "enforce"; pol.trust.workspace_roots = [str(home)]
         d = Daemon(s, spool=Spool(s.spool_dir, fsync=False), repo=MemoryRepository(), policy=pol)
@@ -67,10 +67,10 @@ def run(rounds: int = 3, http_calls: int = 300, shim_calls: int = 100) -> dict[s
             t0 = time.perf_counter(); d.decide(ev); t.append((time.perf_counter() - t0) * 1000)
         out["probe 4 KB"] = _pct(t)
 
-        sock = str(home / "interlockd.sock")
+        sock = str(home / "interlockd.sock") if s.unix_socket else None    # no Unix sockets on Windows
         api = ApiServer(d, "tok", "127.0.0.1", 0, unix_socket=sock); api.start_background()
         host, port = api.address
-        (home / "daemon.json").write_text(json.dumps({"listen": f"{host}:{port}"}))
+        (home / "daemon.json").write_text(json.dumps({"listen": f"{host}:{port}"}), encoding="utf-8")
         payload = {"session_id": "b", "cwd": str(home), "hook_event_name": "PreToolUse", "tool_name": "Bash",
                    "tool_input": {"command": "ls -la"}, "tool_use_id": "t"}
         body = json.dumps({"adapter": {"name": "claude-code", "version": "bench"}, "payload": payload}).encode()
@@ -82,7 +82,7 @@ def run(rounds: int = 3, http_calls: int = 300, shim_calls: int = 100) -> dict[s
         out["http"] = _pct(t)
 
         if shutil.which("curl"):
-            shim = home / "shim.sh"; shim.write_text(CLAUDE_SHIM_SRC.read_text().replace("__HARNESS__", "claude-code"))
+            shim = home / "shim.sh"; shim.write_text(CLAUDE_SHIM_SRC.read_text(encoding="utf-8").replace("__HARNESS__", "claude-code"), encoding="utf-8")
             for label, extra in (("shim (tcp)", {"INTERLOCK_URL": f"http://{host}:{port}"}), ("shim (unix)", {})):
                 env = {**{k: v for k, v in os.environ.items() if k != "INTERLOCK_URL"}, "INTERLOCK_HOME": str(home), **extra}
                 t = []

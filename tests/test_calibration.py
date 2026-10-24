@@ -293,9 +293,9 @@ def test_write_bands_writes_when_meets(tmp_path):
 
     from interlockd.cli import _write_bands
     pol = tmp_path / "policy.yaml"
-    pol.write_text("version: 1\n")
+    pol.write_text("version: 1\n", encoding="utf-8")
     _write_bands(str(pol), {"intent_authorized": _meeting_report("intent_authorized")}, force=False, quiet=True)
-    doc = yaml.safe_load(pol.read_text())
+    doc = yaml.safe_load(pol.read_text(encoding="utf-8"))
     assert "intent_ask_below" in doc["judge"]["bands"]
     assert "intent_block_below" in doc["judge"]["bands"]
 
@@ -320,9 +320,9 @@ def test_write_bands_preserves_comments_and_formatting(tmp_path):
         "    injection_withhold_at: 0.90\n"
     )
     pol = tmp_path / "policy.yaml"
-    pol.write_text(original)
+    pol.write_text(original, encoding="utf-8")
     _write_bands(str(pol), {"confirmation_given": _meeting_report("confirmation_given")}, force=False, quiet=True)
-    text = pol.read_text()
+    text = pol.read_text(encoding="utf-8")
     # comment, inline list, and mode line all preserved verbatim
     assert "# Interlock policy (design \u00a76)" in text
     assert "enabled: [shell, git, egress]" in text
@@ -337,9 +337,9 @@ def test_write_bands_updates_existing_field_in_place(tmp_path):
 
     from interlockd.cli import _write_bands
     pol = tmp_path / "policy.yaml"
-    pol.write_text("# keep me\njudge:\n  bands:\n    confirm_allow_at: 0.60\n")
+    pol.write_text("# keep me\njudge:\n  bands:\n    confirm_allow_at: 0.60\n", encoding="utf-8")
     _write_bands(str(pol), {"confirmation_given": _meeting_report("confirmation_given")}, force=False, quiet=True)
-    text = pol.read_text()
+    text = pol.read_text(encoding="utf-8")
     assert "# keep me" in text
     assert yaml.safe_load(text)["judge"]["bands"]["confirm_allow_at"] == 0.50
     assert text.count("confirm_allow_at") == 1  # updated in place, not duplicated
@@ -350,9 +350,9 @@ def test_write_bands_refuses_when_not_meets(tmp_path):
 
     from interlockd.cli import _write_bands
     pol = tmp_path / "policy.yaml"
-    pol.write_text("version: 1\n")
+    pol.write_text("version: 1\n", encoding="utf-8")
     _write_bands(str(pol), {"intent_authorized": _failing_report("intent_authorized")}, force=False, quiet=True)
-    doc = yaml.safe_load(pol.read_text()) or {}
+    doc = yaml.safe_load(pol.read_text(encoding="utf-8")) or {}
     # nothing written: judge.bands absent or empty
     assert not (doc.get("judge", {}).get("bands"))
 
@@ -362,9 +362,9 @@ def test_write_bands_force_overrides(tmp_path):
 
     from interlockd.cli import _write_bands
     pol = tmp_path / "policy.yaml"
-    pol.write_text("version: 1\n")
+    pol.write_text("version: 1\n", encoding="utf-8")
     _write_bands(str(pol), {"intent_authorized": _failing_report("intent_authorized")}, force=True, quiet=True)
-    doc = yaml.safe_load(pol.read_text())
+    doc = yaml.safe_load(pol.read_text(encoding="utf-8"))
     assert "intent_ask_below" in doc["judge"]["bands"]
 
 
@@ -373,9 +373,9 @@ def test_write_bands_maps_question_to_fields(tmp_path):
 
     from interlockd.cli import _write_bands
     pol = tmp_path / "policy.yaml"
-    pol.write_text("version: 1\n")
+    pol.write_text("version: 1\n", encoding="utf-8")
     _write_bands(str(pol), {"injection_present": _meeting_report("injection_present"),
                             "confirmation_given": _meeting_report("confirmation_given")}, force=False, quiet=True)
-    b = yaml.safe_load(pol.read_text())["judge"]["bands"]
+    b = yaml.safe_load(pol.read_text(encoding="utf-8"))["judge"]["bands"]
     assert "injection_warn_at" in b and "injection_withhold_at" in b
     assert "confirm_allow_at" in b

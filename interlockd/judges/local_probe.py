@@ -116,6 +116,30 @@ def _decode_tags(text: str) -> str:
     return "".join(chr(ord(c) - 0xE0000) for c in _TAG_CHARS.findall(text))
 
 
+_B64_RUN = re.compile(r"[A-Za-z0-9+/]{24,}={0,2}")
+_ROT13 = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz",
+                       "NOPQRSTUVWXYZABCDEFGHIJKLMnopqrstuvwxyzabcdefghijklm")
+
+
+def decoded_views(text: str) -> list[tuple[str, str]]:
+    """Re-encodings an agent can use to read withheld content past a text filter: ROT13 of the whole text and the
+    base64 runs that decode to printable text. Measured on Gemini CLI: after a README was withheld, the agent printed
+    it through `codecs.encode(text, "rot_13")` "to understand content without triggering policy"."""
+    import base64
+    import binascii
+
+    views = [("rot13", text.translate(_ROT13))]
+    for run in _B64_RUN.findall(text)[:20]:
+        try:
+            raw = base64.b64decode(run + "=" * (-len(run) % 4), validate=True)
+        except (binascii.Error, ValueError):
+            continue
+        dec = raw.decode("utf-8", "ignore")
+        if len(dec) >= 16 and sum(c.isprintable() or c.isspace() for c in dec) >= 0.95 * len(dec):
+            views.append(("base64", dec))
+    return views
+
+
 def heuristic_score(text: str, *, assume_addressed: bool = False) -> tuple[float, list[str]]:
     """Score `text` for instructions aimed at an agent. Returns (score in [0,1], matched signal names).
 
@@ -182,6 +206,10 @@ class LocalInjectionProbe:
             return out
         t0 = time.perf_counter()
         score, hits = heuristic_score(content)
+        for enc, view in decoded_views(content):
+            s, h = heuristic_score(view)
+            if s > score:
+                score, hits = s, [f"encoded:{enc}", *h]
         out.scores["LOCAL_HEURISTIC"] = score
         if score >= self.threshold:
             out.findings.append(Finding(category="security.prompt_injection", severity="critical" if score >= 0.85 else "high",

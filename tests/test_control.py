@@ -49,7 +49,7 @@ def test_pause_one_agent_and_timed(daemon, settings):
 
 
 def test_corrupt_pause_file_fails_closed(daemon, settings):
-    (settings.home / "pause.json").write_text("{not json")
+    (settings.home / "pause.json").write_text("{not json", encoding="utf-8")
     assert daemon.decide(ev()).disposition == "block"
 
 
@@ -58,7 +58,7 @@ def test_cli(settings, monkeypatch, capsys):
 
     monkeypatch.setenv("INTERLOCK_HOME", str(settings.home))
     assert main(["pause", "--agent", "mcp-proxy", "--minutes", "5", "--reason", "drill"]) == 0
-    st = json.loads((settings.home / "pause.json").read_text())
+    st = json.loads((settings.home / "pause.json").read_text(encoding="utf-8"))
     assert st["agents"] == ["mcp-proxy"] and st["until"] and st["reason"] == "drill"
     assert "paused mcp-proxy" in capsys.readouterr().out
     assert main(["resume"]) == 0 and not (settings.home / "pause.json").exists()

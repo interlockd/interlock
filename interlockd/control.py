@@ -24,7 +24,7 @@ def pause(home: Path, *, agents: list[str] | None = None, minutes: float | None 
              "reason": reason}
     home.mkdir(parents=True, exist_ok=True)
     tmp = home / (FILE + ".tmp")
-    tmp.write_text(json.dumps(state, indent=2) + "\n")
+    tmp.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
     os.replace(tmp, home / FILE)
     return state
 
@@ -53,7 +53,7 @@ class PauseState:
             return None
         if m != self._mtime:
             try:
-                self._state = json.loads(self.path.read_text())
+                self._state = json.loads(self.path.read_text(encoding="utf-8"))
             except (OSError, ValueError):
                 self._state = {"agents": [], "until": None, "reason": "pause file unreadable"}   # fail closed
             self._mtime = m

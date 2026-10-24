@@ -60,8 +60,8 @@ def stub():
 @pytest.fixture
 def home(tmp_path):
     h = tmp_path / "ih"; h.mkdir()
-    (h / "token").write_text("tok-123\n")
-    (h / "fail-mode.json").write_text(json.dumps({"default": "open"}))
+    (h / "token").write_text("tok-123\n", encoding="utf-8")
+    (h / "fail-mode.json").write_text(json.dumps({"default": "open"}), encoding="utf-8")
     return h
 
 
@@ -108,14 +108,14 @@ def test_daemon_down_fail_open_and_closed(home):
     assert r.returncode == 0
     r = run(home, "http://127.0.0.1:1", PRE, INTERLOCK_FAIL_MODE="closed")
     assert r.returncode == 2 and "unreachable" in r.stderr
-    log = (home / "hook.log").read_text()
+    log = (home / "hook.log").read_text(encoding="utf-8")
     assert "unjudged tool=execute_bash kind=pre" in log and "fail_mode=closed" in log
 
 
 def test_server_error_falls_back_to_fail_mode(stub, home):
     stub.text = None
     assert run(home, stub.url, PRE).returncode == 0
-    assert "unjudged" in (home / "hook.log").read_text()
+    assert "unjudged" in (home / "hook.log").read_text(encoding="utf-8")
 
 
 def test_missing_token_is_inert(stub, home):

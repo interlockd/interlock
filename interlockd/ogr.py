@@ -399,7 +399,7 @@ _SCHEMA_CACHE: dict[str, Any] | None = None
 def load_schema() -> dict[str, Any]:
     global _SCHEMA_CACHE
     if _SCHEMA_CACHE is None:
-        _SCHEMA_CACHE = json.loads(SCHEMA_PATH.read_text())
+        _SCHEMA_CACHE = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
     return _SCHEMA_CACHE
 
 
@@ -491,7 +491,7 @@ def _as_case(raw: Any, default_suite: str, idx: int) -> dict[str, Any] | None:
 
 def _read_one(path: Path) -> list[dict[str, Any]]:
     suite = path.stem
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     cases: list[dict[str, Any]] = []
     if path.suffix == ".jsonl":
         for i, line in enumerate(text.splitlines()):

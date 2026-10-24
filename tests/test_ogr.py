@@ -224,12 +224,12 @@ def test_ogr_run_and_validate_cli(tmp_path, home):
         {"id": "benign-1", "suite": "benign", "expect": "allow", "guard_event": openai_response("git status --short")},
         {"id": "mc-1", "suite": "malicious_command", "expect": "block",
          "guard_event": openai_response("git push --force origin main", call_id="k1")},
-    ]) + "\n")
+    ]) + "\n", encoding="utf-8")
     out = tmp_path / "results.jsonl"
     assert read_seed(seed)  # the reader finds both cases
     rc = main(["--home", str(home), "ogr", "run", str(seed), "--out", str(out)])
     assert rc == 0  # all verdicts schema-valid
-    lines = [json.loads(x) for x in out.read_text().splitlines() if x.strip()]
+    lines = [json.loads(x) for x in out.read_text(encoding="utf-8").splitlines() if x.strip()]
     assert len(lines) == 2
     by_id = {r["id"]: r for r in lines}
     assert by_id["benign-1"]["decision"] == "allow" and by_id["mc-1"]["decision"] == "block"
@@ -242,5 +242,5 @@ def test_ogr_validate_detects_a_bad_line(tmp_path):
     good = compose_ogr_verdict("01E", [])
     broken = dict(good)
     broken["decision"] = "nope"
-    bad.write_text(json.dumps({"id": "ok", "verdict": good}) + "\n" + json.dumps({"id": "broken", "verdict": broken}) + "\n")
+    bad.write_text(json.dumps({"id": "ok", "verdict": good}) + "\n" + json.dumps({"id": "broken", "verdict": broken}) + "\n", encoding="utf-8")
     assert main(["ogr", "validate", str(bad)]) == 1

@@ -53,7 +53,7 @@ class Pins:
 
     def load(self) -> dict:
         try:
-            return json.loads(self.path.read_text())
+            return json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return {}
 
@@ -73,7 +73,7 @@ class Pins:
             if new:
                 self.path.parent.mkdir(parents=True, exist_ok=True)
                 tmp = self.path.with_suffix(".tmp")
-                tmp.write_text(json.dumps(data, indent=2) + "\n")
+                tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
                 os.replace(tmp, self.path)
             return new, changed
 
@@ -87,7 +87,7 @@ class Pins:
                 n = int(data[server].pop(tool, None) is not None)
             else:
                 n = len(data.pop(server))
-            self.path.write_text(json.dumps(data, indent=2) + "\n")
+            self.path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
             return n
 
 
@@ -113,7 +113,7 @@ class Proxy:
         line = f"{datetime.now(UTC).strftime('%Y-%m-%dT%H:%M:%SZ')} [{self.name}] {msg}"
         try:
             self.settings.home.mkdir(parents=True, exist_ok=True)
-            with open(self.log_path, "a") as f:
+            with open(self.log_path, "a", encoding="utf-8") as f:
                 f.write(line + "\n")
         except OSError:
             pass
@@ -128,7 +128,7 @@ class Proxy:
     def token(self) -> str | None:
         if self._token is None:
             try:
-                self._token = (self.settings.home / "token").read_text().strip()
+                self._token = (self.settings.home / "token").read_text(encoding="utf-8").strip()
             except OSError:
                 self._token = ""
         return self._token or None

@@ -208,7 +208,7 @@ def load_policy(workspace_root: str | Path | None, home: Path | None = None) -> 
     merged: dict[str, Any] = {}
     for p in candidates:
         if p.exists():
-            data = yaml.safe_load(p.read_text()) or {}
+            data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
             if not isinstance(data, dict):
                 raise ValueError(f"{p}: policy must be a mapping")
             data.pop("source_paths", None)

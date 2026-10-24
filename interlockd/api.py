@@ -61,8 +61,9 @@ class _Server(ThreadingHTTPServer):
         self.server_name, self.server_port = str(host), port
 
 
-class _UnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
-    """The same API on a Unix socket created with mode 0600: only the owning user can connect at all."""
+class _UnixServer(socketserver.ThreadingMixIn, getattr(socketserver, "UnixStreamServer", socketserver.TCPServer)):
+    """The same API on a Unix socket created with mode 0600: only the owning user can connect at all.
+    (Windows Python has no UnixStreamServer: the base falls back so this module imports, and nothing creates one.)"""
     daemon_threads = True
 
     def server_bind(self):
@@ -85,6 +86,8 @@ class ApiServer:
         handler = self._make_handler()
         self.httpd = _Server((host, port), handler)
         self.httpd.daemon_threads = True
+        if unix_socket and not hasattr(socketserver, "UnixStreamServer"):
+            raise OSError("Unix sockets are not available on this platform")
         self.unix = _UnixServer(unix_socket, handler) if unix_socket else None
         self._thread: threading.Thread | None = None
         self._unix_thread: threading.Thread | None = None

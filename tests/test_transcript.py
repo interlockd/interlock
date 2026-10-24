@@ -24,11 +24,11 @@ def test_incremental_read_picks_up_appends_and_partial_lines(kiro_sessions):
     t = KiroTranscript(kiro_sessions)
     assert t.turn_count(SESSION) == 2
     path = kiro_sessions / "wshash" / SESSION / "messages.jsonl"
-    with open(path, "a") as f:
+    with open(path, "a", encoding="utf-8") as f:
         f.write(json.dumps({"id": "5", "payload": {"type": "user", "content": "third"}}) + "\n")
         f.write('{"id": "6", "payload": {"type": "user", "content": "partial')  # no newline yet
     assert [m.text for m in t.user_messages(SESSION, n=2)] == ["clean up the PR", "third"]
-    with open(path, "a") as f:
+    with open(path, "a", encoding="utf-8") as f:
         f.write(' line"}}\n')
     assert t.user_messages(SESSION, n=1)[0].text == "partial line"
     assert t.turn_count(SESSION) == 4
@@ -38,7 +38,7 @@ def test_interaction_answers_count_as_user_messages(kiro_sessions):
     import json
 
     path = kiro_sessions / "wshash" / SESSION / "messages.jsonl"
-    with open(path, "a") as f:
+    with open(path, "a", encoding="utf-8") as f:
         f.write(json.dumps({"id": "7", "payload": {"type": "pending_interaction", "interactionType": "user_input", "question": "May I?"}}) + "\n")
         f.write(json.dumps({"id": "8", "payload": {"type": "interaction_resolved", "outcome": "answered", "selectedOption": "Yes, append it"}}) + "\n")
         f.write(json.dumps({"id": "9", "payload": {"type": "interaction_resolved", "outcome": "dismissed"}}) + "\n")

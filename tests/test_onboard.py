@@ -25,10 +25,11 @@ from interlockd.service import ServiceManager
 def sandbox(tmp_path, monkeypatch):
     home = tmp_path / "home"
     (home / ".claude").mkdir(parents=True)
-    (home / ".claude" / "settings.json").write_text(json.dumps({"model": "x", "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "echo hi"}]}]}}))
+    (home / ".claude" / "settings.json").write_text(json.dumps({"model": "x", "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "echo hi"}]}]}}), encoding="utf-8")
     (home / ".codex").mkdir()
     proj = tmp_path / "proj"; proj.mkdir()
     monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("USERPROFILE", str(home))   # Windows: Path.home()
     monkeypatch.setenv("INTERLOCK_HOME", str(home / ".interlock"))
     monkeypatch.setenv("PATH", "/usr/bin:/bin")       # no claude/codex/kiro binaries: detection falls back to dirs
     monkeypatch.chdir(proj)
@@ -48,18 +49,18 @@ def test_init_and_uninstall_round_trip(sandbox, capsys):
     assert main(["init", "--yes", "--no-service"]) == 0
     out = capsys.readouterr().out
     assert "block  git push --force origin main" in out and "allow  pytest -q" in out
-    settings = json.loads((sandbox / ".claude" / "settings.json").read_text())
+    settings = json.loads((sandbox / ".claude" / "settings.json").read_text(encoding="utf-8"))
     assert settings["model"] == "x" and "Stop" in settings["hooks"] and "PreToolUse" in settings["hooks"]
-    assert "PreToolUse" in json.loads((sandbox / ".codex" / "hooks.json").read_text())["hooks"]
-    assert (il / "policy.yaml").read_text() == STARTER_POLICY and (il / "token").stat().st_mode & 0o777 == 0o600
+    assert "PreToolUse" in json.loads((sandbox / ".codex" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
+    assert (il / "policy.yaml").read_text(encoding="utf-8") == STARTER_POLICY and (il / "token").stat().st_mode & 0o777 == 0o600
     man = Manifest.load(il)
     assert {h["harness"] for h in man.hooks} == {"claude-code", "codex"}
     # idempotent: a second init replaces our groups rather than duplicating them
     assert main(["init", "--yes", "--no-service"]) == 0
-    assert len(json.loads((sandbox / ".claude" / "settings.json").read_text())["hooks"]["PreToolUse"]) == 1
+    assert len(json.loads((sandbox / ".claude" / "settings.json").read_text(encoding="utf-8"))["hooks"]["PreToolUse"]) == 1
 
     assert main(["uninstall", "--yes"]) == 0
-    settings = json.loads((sandbox / ".claude" / "settings.json").read_text())
+    settings = json.loads((sandbox / ".claude" / "settings.json").read_text(encoding="utf-8"))
     assert settings == {"model": "x", "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "echo hi"}]}]}}
     assert not (sandbox / ".codex" / "hooks.json").exists()          # init created it, uninstall removes it
     assert (il / "policy.yaml").exists() and not (il / "install-manifest.json").exists()
@@ -69,8 +70,8 @@ def test_init_and_uninstall_round_trip(sandbox, capsys):
 
 def test_init_respects_harness_subset_and_enforce(sandbox):
     assert main(["init", "--yes", "--no-service", "--harness", "codex", "--enforce"]) == 0
-    assert "PreToolUse" not in json.loads((sandbox / ".claude" / "settings.json").read_text())["hooks"]
-    assert "mode: enforce" in (sandbox / ".interlock" / "policy.yaml").read_text()
+    assert "PreToolUse" not in json.loads((sandbox / ".claude" / "settings.json").read_text(encoding="utf-8"))["hooks"]
+    assert "mode: enforce" in (sandbox / ".interlock" / "policy.yaml").read_text(encoding="utf-8")
 
 
 def test_init_without_tty_needs_yes(sandbox, monkeypatch):
@@ -82,11 +83,11 @@ def test_init_without_tty_needs_yes(sandbox, monkeypatch):
 def test_set_mode_preserves_comments_and_detects_workspace_override(tmp_path):
     p = tmp_path / "policy.yaml"
     assert set_mode(p, "enforce") == "shadow"          # created from the starter policy
-    text = p.read_text()
+    text = p.read_text(encoding="utf-8")
     assert "mode: enforce" in text and "# shadow: decide and record" in text
     assert set_mode(p, "shadow") == "enforce"
     ws = tmp_path / "repo"; (ws / ".interlock").mkdir(parents=True)
-    (ws / ".interlock" / "policy.yaml").write_text("mode: enforce\n")
+    (ws / ".interlock" / "policy.yaml").write_text("mode: enforce\n", encoding="utf-8")
     assert workspace_mode_override(p, ws) == ws / ".interlock" / "policy.yaml"
     assert workspace_mode_override(p, tmp_path) is None
     with pytest.raises(ValueError):
@@ -97,9 +98,9 @@ def test_remove_hook_groups_keeps_foreign_hooks(tmp_path):
     f = tmp_path / "settings.json"
     f.write_text(json.dumps({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"command": "sh /x/interlock-hook.sh"}]},
                                                        {"matcher": "Bash", "hooks": [{"command": "other"}]}],
-                                       "PostToolUse": [{"hooks": [{"command": "sh /x/interlock-hook.sh"}]}]}}))
+                                       "PostToolUse": [{"hooks": [{"command": "sh /x/interlock-hook.sh"}]}]}}), encoding="utf-8")
     assert remove_hook_groups(f, "/x/interlock-hook.sh")
-    assert json.loads(f.read_text()) == {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"command": "other"}]}]}}
+    assert json.loads(f.read_text(encoding="utf-8")) == {"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"command": "other"}]}]}}
     assert not remove_hook_groups(f, "/x/interlock-hook.sh")
     assert not remove_hook_groups(tmp_path / "missing.json", "x")
 
@@ -122,11 +123,12 @@ class FakeRunner:
 
 def test_launchd_unit_and_sequence(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))   # Windows: Path.home()
     run = FakeRunner(fail_first=2)
     svc = ServiceManager(tmp_path / "ih", backend="launchd", python="/py", runner=run)
     assert svc.label.startswith("dev.interlock.daemon.")          # non-default home gets its own label
     unit = svc.install()
-    xml = unit.read_text()
+    xml = unit.read_text(encoding="utf-8")
     assert unit.parent == tmp_path / "Library" / "LaunchAgents"
     assert "<string>/py</string>" in xml and "<string>interlockd</string>" in xml and str(tmp_path / "ih") in xml
     svc.start()
@@ -140,7 +142,7 @@ def test_systemd_unit(tmp_path, monkeypatch):
     run = FakeRunner()
     svc = ServiceManager(tmp_path / "ih", backend="systemd", python="/py", runner=run)
     unit = svc.install()
-    text = unit.read_text()
+    text = unit.read_text(encoding="utf-8")
     assert unit == tmp_path / "cfg" / "systemd" / "user" / svc.unit
     assert "ExecStart=/py -m interlockd --home" in text and "Restart=on-failure" in text
     assert ["systemctl", "--user", "enable", svc.unit] in run.calls
@@ -157,7 +159,7 @@ def test_process_backend_runs_the_daemon(tmp_path):
     try:
         svc.start()
         up = svc.wait_healthy(30)
-        log = svc.log_path.read_text() if svc.log_path.exists() else "<no log>"
+        log = svc.log_path.read_text(encoding="utf-8") if svc.log_path.exists() else "<no log>"
         assert up and svc.status().running, f"daemon did not come up; log:\n{log[-3000:]}"
     finally:
         svc.stop()
@@ -168,8 +170,8 @@ def test_process_backend_runs_the_daemon(tmp_path):
 def test_token_rotate(sandbox):
     il = sandbox / ".interlock"
     assert main(["init", "--yes", "--no-service"]) == 0
-    before = (il / "token").read_text()
+    before = (il / "token").read_text(encoding="utf-8")
     assert main(["token", "--rotate"]) == 0
-    after = (il / "token").read_text()
+    after = (il / "token").read_text(encoding="utf-8")
     assert after != before and len(after.strip()) > 30 and (il / "token").stat().st_mode & 0o777 == 0o600
     assert not (il / "token.new").exists()

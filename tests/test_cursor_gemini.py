@@ -1,7 +1,7 @@
 """Cursor and Gemini CLI adapters: normalizers, API rendering, shim behaviour, installers.
 
-Payloads here follow the DOCUMENTED shapes (cursor.com/docs/agent/hooks, geminicli.com/docs/hooks/reference, read
-2026-10-17). They are not captures from the running tools; those go in tests/fixtures/ once measured.
+Payloads here follow the documented shapes (cursor.com/docs/agent/hooks, geminicli.com/docs/hooks/reference, read
+2026-10-17); both CLIs have since been captured live and those payloads are replayed from tests/fixtures/.
 """
 
 from __future__ import annotations
@@ -104,8 +104,8 @@ def test_gemini_rendering(server):
 @pytest.mark.skipif(shutil.which("curl") is None, reason="curl not available")
 @pytest.mark.parametrize("harness,pre,deny_key", [("cursor", CURSOR_PRE, "permission"), ("gemini-cli", GEMINI_PRE, "decision")])
 def test_shim_per_harness(server, tmp_path, harness, pre, deny_key):
-    home = tmp_path / "ih"; home.mkdir(); (home / "token").write_text("tok\n")
-    shim = tmp_path / "shim.sh"; shim.write_text(SHIM.read_text().replace("__HARNESS__", harness))
+    home = tmp_path / "ih"; home.mkdir(); (home / "token").write_text("tok\n", encoding="utf-8")
+    shim = tmp_path / "shim.sh"; shim.write_text(SHIM.read_text(encoding="utf-8").replace("__HARNESS__", harness), encoding="utf-8")
     host, port = server.address
     env = {**os.environ, "INTERLOCK_HOME": str(home), "INTERLOCK_URL": f"http://{host}:{port}"}
 
@@ -126,16 +126,29 @@ def test_shim_per_harness(server, tmp_path, harness, pre, deny_key):
 
 def test_init_installs_and_uninstall_removes(tmp_path, monkeypatch):
     home = tmp_path / "home"; (home / ".cursor").mkdir(parents=True); (home / ".gemini").mkdir()
-    (home / ".gemini" / "settings.json").write_text(json.dumps({"theme": "dark", "hooks": {"BeforeTool": [{"matcher": "x", "hooks": [{"command": "mine"}]}]}}))
+    (home / ".gemini" / "settings.json").write_text(json.dumps({"theme": "dark", "hooks": {"BeforeTool": [{"matcher": "x", "hooks": [{"command": "mine"}]}]}}), encoding="utf-8")
     monkeypatch.setenv("HOME", str(home)); monkeypatch.setenv("INTERLOCK_HOME", str(home / ".interlock"))
+    monkeypatch.setenv("USERPROFILE", str(home)); monkeypatch.setenv("INTERLOCK_HOME", str(home / ".interlock"))   # Windows: Path.home()
     monkeypatch.setenv("PATH", "/usr/bin:/bin"); monkeypatch.chdir(tmp_path)
     assert main(["init", "--yes", "--no-service", "--harness", "cursor,gemini-cli"]) == 0
-    cur = json.loads((home / ".cursor" / "hooks.json").read_text())
+    cur = json.loads((home / ".cursor" / "hooks.json").read_text(encoding="utf-8"))
     assert cur["version"] == 1 and "interlock-hook.sh" in cur["hooks"]["preToolUse"][0]["command"]
-    gem = json.loads((home / ".gemini" / "settings.json").read_text())
+    gem = json.loads((home / ".gemini" / "settings.json").read_text(encoding="utf-8"))
     assert gem["theme"] == "dark" and len(gem["hooks"]["BeforeTool"]) == 2 and "AfterTool" in gem["hooks"]
-    assert 'HARNESS="cursor"' in (home / ".interlock" / "adapters" / "cursor" / "interlock-hook.sh").read_text()
+    assert 'HARNESS="cursor"' in (home / ".interlock" / "adapters" / "cursor" / "interlock-hook.sh").read_text(encoding="utf-8")
     assert main(["uninstall", "--yes"]) == 0
-    gem = json.loads((home / ".gemini" / "settings.json").read_text())
+    gem = json.loads((home / ".gemini" / "settings.json").read_text(encoding="utf-8"))
     assert gem == {"theme": "dark", "hooks": {"BeforeTool": [{"matcher": "x", "hooks": [{"command": "mine"}]}]}}
-    assert not (home / ".cursor" / "hooks.json").exists() or "interlock" not in (home / ".cursor" / "hooks.json").read_text()
+    assert not (home / ".cursor" / "hooks.json").exists() or "interlock" not in (home / ".cursor" / "hooks.json").read_text(encoding="utf-8")
+
+
+def test_reading_a_withheld_file_another_way_is_refused(server):
+    """Measured on Gemini CLI 0.65: after read_file(README.md) was withheld, the agent ran a python one-liner that
+    printed README.md in ROT13. The second route to the same bytes is refused (ask, which Gemini degrades to deny)."""
+    assert json.loads(_post(server, "gemini-cli", GEMINI_POST))["decision"] == "deny"           # withheld
+    rot13 = {**GEMINI_PRE, "tool_input": {"command": "python3 -c 'import codecs; print(codecs.encode(open(\"README.md\").read(), \"rot_13\"))'"}}
+    out = json.loads(_post(server, "gemini-cli", rot13))
+    assert out["decision"] == "deny" and "withheld" in out["reason"]
+    assert _post(server, "gemini-cli", {**rot13, "session_id": "other"}) == ""                  # per session
+    assert _post(server, "gemini-cli", {**GEMINI_PRE, "tool_input": {"command": "cat README.md.bak"}}) == ""
+    assert _post(server, "gemini-cli", {**GEMINI_PRE, "tool_name": "read_file", "tool_input": {"file_path": "README.md"}}) == ""

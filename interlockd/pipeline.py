@@ -16,6 +16,8 @@ from .compose import compose
 from .config import Settings
 from .det.engine import evaluate as det_evaluate
 from .det.flow import check as flow_check
+from .det.flow import check_reread as flow_check_reread
+from .det.flow import note_withheld as flow_note_withheld
 from .det.flow import observe as flow_observe
 from .det.mandate import evaluate_mandate
 from .ids import ulid
@@ -312,6 +314,7 @@ class Daemon:
                 if extra:
                     reason = "; ".join(f.subject or f.category for f in extra)
                 if disposition == "withhold":
+                    flow_note_withheld(event, session)
                     notice = ("[interlock] This tool result was withheld by a security policy because it appears to contain "
                               "instructions addressed to the agent that the user did not give. Its contents are recorded in the audit store.")
         elif tier.tier == 0:
@@ -320,6 +323,7 @@ class Daemon:
             # tier 1 runs the secrets and persistence packs on the content; tier 2 runs everything the policy enables
             det = det_evaluate(event, pol, tier)
             flow_check(event, det, session, pol)
+            flow_check_reread(event, det, session, pol)
             mandate = evaluate_mandate(pol, det, agent_id=event.identity.agent_id, workspace=event.identity.agent_workspace,
                                        session_counters=session.get("counters", {}))
             composed = compose(det, mandate, pol, session=session, kind="pre_action")

@@ -23,8 +23,27 @@ from typing import Any
 
 try:
     import fcntl
-except ImportError:              # Windows: not supported (see `interlock`'s startup check); keep the module importable
+except ImportError:              # Windows: msvcrt byte-range lock instead
     fcntl = None  # type: ignore[assignment]
+    import msvcrt
+
+O_BINARY = getattr(os, "O_BINARY", 0)    # Windows opens in text mode by default and would write \r\n
+
+
+def _lock(fd: int) -> None:
+    if fcntl is not None:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+    else:
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_LOCK, 1)       # retries for ~10 s, then raises OSError
+
+
+def _unlock(fd: int) -> None:
+    if fcntl is not None:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    else:
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
 
 
 class Spool:
@@ -42,15 +61,18 @@ class Spool:
     def append(self, record: dict[str, Any]) -> None:
         seg = self._segment()      # by write time, not received_at: the chain must follow file order
         with self._lock:
-            lock_fd = os.open(self.dir / ".lock", os.O_WRONLY | os.O_CREAT, 0o600)
+            lock_fd = os.open(self.dir / ".lock", os.O_WRONLY | os.O_CREAT | O_BINARY, 0o600)
             try:
-                if fcntl is not None:
-                    fcntl.flock(lock_fd, fcntl.LOCK_EX)     # one chain even with several writers on this spool
+                _lock(lock_fd)                               # one chain even with several writers on this spool
+            except BaseException:
+                os.close(lock_fd)
+                raise
+            try:
                 rec = {k: v for k, v in record.items() if k not in ("hash", "prev_hash")}
                 rec["prev_hash"] = self._cached_head(seg)
                 rec["hash"] = record_hash(rec)
                 line = json.dumps(rec, separators=(",", ":"), ensure_ascii=False) + "\n"
-                fd = os.open(seg, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+                fd = os.open(seg, os.O_WRONLY | os.O_CREAT | os.O_APPEND | O_BINARY, 0o600)
                 try:
                     os.write(fd, line.encode("utf-8"))
                     if self.fsync:
@@ -59,8 +81,7 @@ class Spool:
                 finally:
                     os.close(fd)
             finally:
-                if fcntl is not None:
-                    fcntl.flock(lock_fd, fcntl.LOCK_UN)
+                _unlock(lock_fd)
                 os.close(lock_fd)
 
     def _cached_head(self, seg: Path) -> str:
@@ -136,7 +157,7 @@ class Spool:
 
     def drained_offset(self, seg: Path) -> int:
         p = self._offset_path(seg)
-        return int(p.read_text().strip() or 0) if p.exists() else 0
+        return int(p.read_text(encoding="utf-8").strip() or 0) if p.exists() else 0
 
     def undrained(self) -> Iterator[tuple[Path, int, dict[str, Any]]]:
         """Yield (segment, end_offset_after_record, record) for every record not yet drained."""
@@ -152,7 +173,7 @@ class Spool:
 
     def mark_drained(self, seg: Path, offset: int) -> None:
         tmp = self._offset_path(seg).with_suffix(".drained.tmp")
-        tmp.write_text(str(offset))
+        tmp.write_text(str(offset), encoding="utf-8")
         os.replace(tmp, self._offset_path(seg))
 
 

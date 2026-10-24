@@ -31,7 +31,7 @@ class InterlockClient:
         if self._url:
             return self._url.rstrip("/")
         try:
-            listen = json.loads((self.home / "daemon.json").read_text()).get("listen") or "127.0.0.1:7391"
+            listen = json.loads((self.home / "daemon.json").read_text(encoding="utf-8")).get("listen") or "127.0.0.1:7391"
         except (OSError, ValueError):
             listen = "127.0.0.1:7391"
         return f"http://{listen}"
@@ -40,7 +40,7 @@ class InterlockClient:
     def token(self) -> str:
         if self._token is None:
             try:
-                self._token = (self.home / "token").read_text().strip()
+                self._token = (self.home / "token").read_text(encoding="utf-8").strip()
             except OSError:
                 self._token = ""
         return self._token
@@ -50,7 +50,7 @@ class InterlockClient:
         if env in ("open", "closed"):
             return env == "closed"
         try:
-            return json.loads((self.home / "fail-mode.json").read_text()).get("default") == "closed"
+            return json.loads((self.home / "fail-mode.json").read_text(encoding="utf-8")).get("default") == "closed"
         except (OSError, ValueError):
             return False
 

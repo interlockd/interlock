@@ -244,7 +244,7 @@ def load_repo_policy(base: Policy, f: Path) -> tuple[Policy, list[str]]:
     """Layer the repository policy at `f` over `base`: in full when trusted, tighten-only otherwise. A policy that
     does not parse is ignored as a whole (reported), never half-applied."""
     try:
-        data = yaml.safe_load(f.read_text()) or {}
+        data = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
         if not isinstance(data, dict):
             raise TypeError("not a mapping")
     except (OSError, TypeError, ValueError, yaml.YAMLError):

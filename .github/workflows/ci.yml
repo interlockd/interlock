@@ -9,6 +9,44 @@ permissions:
   contents: read
 
 jobs:
+  windows:
+    # native Windows: daemon, policy, audit, scan, SDKs (agent hooks and the sandbox stay macOS/Linux; WSL2)
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v7
+      - name: Install
+        run: |
+          uv venv --python 3.12
+          uv pip install -e ".[dev]" --python .venv/Scripts/python.exe
+      - name: Unit tests
+        run: .venv/Scripts/python.exe -m pytest -q -p no:cacheprovider
+      - name: Rule corpus gate
+        run: .venv/Scripts/interlock.exe test
+      - name: Live daemon on Windows (start, decide, audit, stop)
+        run: |
+          export INTERLOCK_HOME="$RUNNER_TEMP/ih" IL=.venv/Scripts/interlock.exe
+          $IL enforce && $IL start && $IL status
+          .venv/Scripts/python.exe - <<'PY'
+          import os
+          from interlockd.integrations.client import InterlockClient
+          c = InterlockClient()
+          cases = [("Bash", {"command": "git push --force origin main"}, "block"),
+                   ("Write", {"file_path": os.path.expanduser(r"~\.CLAUDE\settings.json"), "content": "{}"}, "block"),
+                   ("Read", {"file_path": "README.md"}, "allow")]
+          for tool, args, want in cases:
+              v = c.decide("pre_action", tool, args, cwd=os.getcwd())
+              print(tool, args, "->", v and v["disposition"])
+              assert v and v["disposition"] == want, v
+          PY
+          $IL audit verify
+          $IL stop
+          sleep 2
+          if curl -sf http://127.0.0.1:7391/interlock/v1/health; then echo "daemon still running after stop"; exit 1; fi
+
   test:
     runs-on: ${{ matrix.os }}
     strategy:

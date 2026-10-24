@@ -68,14 +68,14 @@ def server(settings, tmp_path):
 
 
 def _run(tmp_path, url, **env):
-    home = tmp_path / "ih"; home.mkdir(exist_ok=True); (home / "token").write_text("tok\n")
-    driver = tmp_path / "driver.mjs"; driver.write_text(DRIVER)
+    home = tmp_path / "ih"; home.mkdir(exist_ok=True); (home / "token").write_text("tok\n", encoding="utf-8")
+    driver = tmp_path / "driver.mjs"; driver.write_text(DRIVER, encoding="utf-8")
     fx = {"inject": INJECT}
     for k, name in (("pre", "pre-bash-block.json"), ("post", "post-read-inject.json")):
-        p = json.loads((FIX / name).read_text()); p["cwd"] = str(tmp_path); p["transcript_path"] = str(tmp_path / "t.jsonl")
+        p = json.loads((FIX / name).read_text(encoding="utf-8")); p["cwd"] = str(tmp_path); p["transcript_path"] = str(tmp_path / "t.jsonl")
         fx[k] = p
     e = {**os.environ, "INTERLOCK_HOME": str(home), "INTERLOCK_URL": url, **env}
-    r = subprocess.run(["node", str(driver), str(SDK / "src" / "index.js"), json.dumps(fx)], capture_output=True, text=True,
+    r = subprocess.run(["node", str(driver), (SDK / "src" / "index.js").as_uri(), json.dumps(fx)], capture_output=True, text=True,
                        timeout=60, env=e, cwd=tmp_path, check=False)
     assert r.returncode == 0, r.stderr
     return json.loads(r.stdout.strip().splitlines()[-1])
@@ -102,5 +102,5 @@ def test_daemon_down(tmp_path):
 
 
 def test_version_matches_the_package():
-    pkg = json.loads((SDK / "package.json").read_text())
-    assert pkg["version"] == __version__ and f'VERSION = "{__version__}"' in (SDK / "src" / "index.js").read_text()
+    pkg = json.loads((SDK / "package.json").read_text(encoding="utf-8"))
+    assert pkg["version"] == __version__ and f'VERSION = "{__version__}"' in (SDK / "src" / "index.js").read_text(encoding="utf-8")

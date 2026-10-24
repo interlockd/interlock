@@ -32,7 +32,7 @@ def _write_private(path: Path, data: dict) -> None:
     """Atomic JSON write, mode 0600."""
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0), 0o600)
     with os.fdopen(fd, "w") as f:
         f.write(json.dumps(data, indent=2) + "\n")
     os.replace(tmp, path)
@@ -46,7 +46,7 @@ class Routes:
 
     def load(self) -> dict:
         try:
-            return json.loads(self.path.read_text())
+            return json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return {"secret": "", "routes": {}}
 
@@ -93,7 +93,7 @@ class OAuthPins:
 
     def load(self) -> dict:
         try:
-            return json.loads(self.path.read_text())
+            return json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return {}
 

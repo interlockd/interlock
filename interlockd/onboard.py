@@ -72,11 +72,11 @@ class Manifest:
         p = home / MANIFEST
         if not p.exists():
             return None
-        d = json.loads(p.read_text())
+        d = json.loads(p.read_text(encoding="utf-8"))
         return cls(**{k: d.get(k, v) for k, v in cls().__dict__.items()})
 
     def save(self, home: Path) -> None:
-        (home / MANIFEST).write_text(json.dumps(self.__dict__, indent=2, default=str) + "\n")
+        (home / MANIFEST).write_text(json.dumps(self.__dict__, indent=2, default=str) + "\n", encoding="utf-8")
 
 
 # ------------------------------------------------------------------------------------------------ detection
@@ -107,7 +107,7 @@ def detect(cwd: Path | None = None) -> list[Detected]:
     gemini = shutil.which("gemini")
     out.append(Detected("gemini-cli", bool(gemini or (home / ".gemini").is_dir()), why=gemini or str(home / ".gemini"),
                         target=home / ".gemini" / "settings.json",
-                        note="built from Gemini CLI's docs, not yet verified live; hooksConfig.enabled must not be false"))
+                        note="verified live on Gemini CLI 0.65; hooksConfig.enabled must not be false; headless runs need GEMINI_CLI_TRUST_WORKSPACE=true"))
     built = "built from its documented hooks, not yet verified live"
     copilot = shutil.which("copilot")
     out.append(Detected("copilot-cli", bool(copilot or (home / ".copilot").is_dir()), why=copilot or str(home / ".copilot"),
@@ -139,9 +139,9 @@ def detect(cwd: Path | None = None) -> list[Detected]:
 
 def remove_hook_groups(path: Path, marker: str) -> bool:
     """Drop every hook group whose JSON mentions `marker` (the installed shim path). Returns True if changed."""
-    if not path.exists() or not path.read_text().strip():
+    if not path.exists() or not path.read_text(encoding="utf-8").strip():
         return False
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding="utf-8"))
     hooks = data.get("hooks")
     if not isinstance(hooks, dict):
         return False
@@ -160,7 +160,7 @@ def remove_hook_groups(path: Path, marker: str) -> bool:
             data.pop("hooks")
         if data.get("description") == "Interlock pre/post-action gate":
             data.pop("description")
-        path.write_text(json.dumps(data, indent=2) + "\n")
+        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     return changed
 
 
@@ -174,8 +174,8 @@ def set_mode(policy_path: Path, mode: str) -> str:
         raise ValueError(mode)
     if not policy_path.exists():
         policy_path.parent.mkdir(parents=True, exist_ok=True)
-        policy_path.write_text(STARTER_POLICY)
-    text = policy_path.read_text()
+        policy_path.write_text(STARTER_POLICY, encoding="utf-8")
+    text = policy_path.read_text(encoding="utf-8")
     m = re.search(r"^mode:\s*(\w+)", text, flags=re.MULTILINE)
     if m:
         prev = m.group(1)
@@ -183,7 +183,7 @@ def set_mode(policy_path: Path, mode: str) -> str:
     else:
         prev = "shadow"
         text = text.rstrip("\n") + f"\nmode: {mode}\n"
-    policy_path.write_text(text)
+    policy_path.write_text(text, encoding="utf-8")
     return prev
 
 
@@ -193,7 +193,7 @@ def workspace_mode_override(user_policy: Path, cwd: Path | None = None) -> Path 
     mine = user_policy.expanduser().resolve()
     for p in [cwd, *cwd.parents]:
         f = p / ".interlock" / "policy.yaml"
-        if f.exists() and f.resolve() != mine and re.search(r"^mode:", f.read_text(), flags=re.MULTILINE):
+        if f.exists() and f.resolve() != mine and re.search(r"^mode:", f.read_text(encoding="utf-8"), flags=re.MULTILINE):
             return f
     return None
 
@@ -247,21 +247,21 @@ def register_mcp(harness: str, run=None) -> dict | None:
         return {"harness": harness, "via": "claude-cli"} if r.returncode == 0 else None
     if harness == "codex":
         f = Path.home() / ".codex" / "config.toml"
-        text = f.read_text() if f.exists() else ""
+        text = f.read_text(encoding="utf-8") if f.exists() else ""
         text = _strip_codex_block(text)
         args = ", ".join(json.dumps(a) for a in cmd[1:])
         block = f'\n{CODEX_BEGIN}\n[mcp_servers.{MCP_NAME}]\ncommand = {json.dumps(cmd[0])}\nargs = [{args}]\n{CODEX_END}\n'
         f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_text(text.rstrip("\n") + "\n" + block if text.strip() else block.lstrip("\n"))
+        f.write_text(text.rstrip("\n") + "\n" + block if text.strip() else block.lstrip("\n"), encoding="utf-8")
         return {"harness": harness, "file": str(f), "via": "toml-block"}
     f = _json_mcp_file(harness)
     if f is None:
         return None
-    data = json.loads(f.read_text()) if f.exists() and f.read_text().strip() else {}
+    data = json.loads(f.read_text(encoding="utf-8")) if f.exists() and f.read_text(encoding="utf-8").strip() else {}
     created = not f.exists()
     data.setdefault("mcpServers", {})[MCP_NAME] = {"command": cmd[0], "args": cmd[1:]}
     f.parent.mkdir(parents=True, exist_ok=True)
-    f.write_text(json.dumps(data, indent=2) + "\n")
+    f.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     return {"harness": harness, "file": str(f), "via": "json", "created": created}
 
 
@@ -285,9 +285,9 @@ def unregister_mcp(entry: dict, run=None) -> bool:
     if not f.exists():
         return False
     if via == "toml-block":
-        f.write_text(_strip_codex_block(f.read_text()))
+        f.write_text(_strip_codex_block(f.read_text(encoding="utf-8")), encoding="utf-8")
         return True
-    data = json.loads(f.read_text() or "{}")
+    data = json.loads(f.read_text(encoding="utf-8") or "{}")
     if MCP_NAME not in (data.get("mcpServers") or {}):
         return False
     del data["mcpServers"][MCP_NAME]
@@ -296,5 +296,5 @@ def unregister_mcp(entry: dict, run=None) -> bool:
     if entry.get("created") and not data:
         f.unlink()
     else:
-        f.write_text(json.dumps(data, indent=2) + "\n")
+        f.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     return True

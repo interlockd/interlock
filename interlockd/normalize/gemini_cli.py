@@ -1,8 +1,8 @@
 """Gemini CLI hook payload -> InterlockEvent (https://geminicli.com/docs/hooks/reference/, read 2026-10-17).
 
 `BeforeTool` / `AfterTool` cover every tool, including shell (`run_shell_command`) and MCP (`mcp_<server>_<tool>`).
-AfterTool carries `tool_response {llmContent, returnDisplay, error}`. Built from the documentation; not yet captured
-from a running Gemini CLI (see adapters/gemini-cli/PAYLOADS.md).
+AfterTool carries `tool_response {llmContent, returnDisplay, error}`. Verified live on Gemini CLI 0.65.0; payloads carry
+no tool-call id (see adapters/gemini-cli/PAYLOADS.md, fixtures in tests/fixtures/gemini-cli/).
 """
 
 from __future__ import annotations

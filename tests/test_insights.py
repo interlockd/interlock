@@ -42,9 +42,10 @@ def test_report_empty_points_to_doctor():
 def sandbox(tmp_path, monkeypatch):
     home = tmp_path / "home"; (home / ".claude").mkdir(parents=True)
     monkeypatch.setenv("HOME", str(home)); monkeypatch.setenv("INTERLOCK_HOME", str(home / ".interlock"))
+    monkeypatch.setenv("USERPROFILE", str(home)); monkeypatch.setenv("INTERLOCK_HOME", str(home / ".interlock"))   # Windows: Path.home()
     monkeypatch.setenv("PATH", "/usr/bin:/bin"); monkeypatch.chdir(tmp_path)
     il = home / ".interlock"; il.mkdir()
-    (il / "config.json").write_text(json.dumps({"listen": "127.0.0.1:9"}))   # nothing listens on port 9
+    (il / "config.json").write_text(json.dumps({"listen": "127.0.0.1:9"}), encoding="utf-8")   # nothing listens on port 9
     return home
 
 
@@ -61,12 +62,12 @@ def test_doctor_after_init_then_tamper(sandbox):
     assert rc == 1
 
     shim = sandbox / ".interlock" / "adapters" / "claude-code" / "interlock-hook.sh"
-    shim.write_text(shim.read_text() + "\nexit 0\n")                     # an agent neutering its own gate
+    shim.write_text(shim.read_text(encoding="utf-8") + "\nexit 0\n", encoding="utf-8")                     # an agent neutering its own gate
     c = _checks(sandbox)
     assert not c["hooks claude-code"].ok and "tampered" in c["hooks claude-code"].detail
 
     settings = sandbox / ".claude" / "settings.json"
-    settings.write_text(json.dumps({"hooks": {}}))                       # hook removed
+    settings.write_text(json.dumps({"hooks": {}}), encoding="utf-8")                       # hook removed
     c = _checks(sandbox)
     assert not c["hooks claude-code"].ok and "missing" in c["hooks claude-code"].detail
 
@@ -75,7 +76,7 @@ def test_doctor_flags_loose_token_and_bad_policy(sandbox):
     assert main(["init", "--yes", "--no-service"]) == 0
     il = sandbox / ".interlock"
     (il / "token").chmod(0o644)
-    (il / "policy.yaml").write_text("mode: sideways\n")
+    (il / "policy.yaml").write_text("mode: sideways\n", encoding="utf-8")
     c = _checks(sandbox)
     assert not c["token"].ok and not c["policy"].ok
 
@@ -87,7 +88,7 @@ def test_report_includes_gateway_interventions(tmp_path):
     log.write_text("2026-10-17T11:00:00Z [fake] pinned 4 tool definition(s): a, b, c, d\n"
                    "2026-10-17T11:00:00Z [fake] hid tool add: description reads as instructions to the model (0.84: ...)\n"
                    "2026-10-17T11:01:00Z [gh] would hide (shadow) tool shell: definition changed since it was pinned\n"
-                   "2026-10-01T11:00:00Z [old] hid tool x: too old\n")
+                   "2026-10-01T11:00:00Z [old] hid tool x: too old\n", encoding="utf-8")
     r = build_report([], days=7, now=NOW)
     add_gateway_log(r, log, now=NOW)
     assert r.gateway_pinned == 4 and len(r.gateway_hidden) == 2 and r.gateway_hidden[1].endswith("(shadow)")
@@ -130,7 +131,7 @@ def test_replay_shows_policy_changes(tmp_path, monkeypatch, capsys):
     assert main(["replay"]) == 0
     out = capsys.readouterr().out
     assert "replayed 2" in out and "1 decision(s) would change: 1 newly stopped" in out and "allow -> block" in out
-    (tmp_path / "policy.yaml").write_text("packs:\n  overrides:\n    git.force_push_protected_branch: { action: allow }\n")
+    (tmp_path / "policy.yaml").write_text("packs:\n  overrides:\n    git.force_push_protected_branch: { action: allow }\n", encoding="utf-8")
     assert main(["replay"]) == 0 and "no decision would change" in capsys.readouterr().out
 
 

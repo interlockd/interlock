@@ -136,7 +136,7 @@ def _unwrap_one(name: str, cfg: dict, dry_run: bool) -> dict | None:
 
 def _edit_json(agent: str, path: Path, key: str, wrap: bool, dry_run: bool, python: str | None) -> list[Change]:
     try:
-        data = json.loads(path.read_text()) if path.read_text().strip() else {}
+        data = json.loads(path.read_text(encoding="utf-8")) if path.read_text(encoding="utf-8").strip() else {}
     except (OSError, ValueError):
         return []
     servers = data.get(key)
@@ -162,7 +162,7 @@ def _edit_json(agent: str, path: Path, key: str, wrap: bool, dry_run: bool, pyth
         backup = path.with_name(path.name + ".interlock-backup")
         if not backup.exists():
             shutil.copy2(path, backup)
-        path.write_text(json.dumps(data, indent=2) + "\n")
+        path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     return out
 
 
@@ -170,7 +170,7 @@ def _claude_user(wrap: bool, dry_run: bool, python: str | None, home: Path, run)
     """Claude Code user scope lives in ~/.claude.json, which Claude rewrites; change it only through `claude mcp`."""
     f = home / ".claude.json"
     try:
-        servers = (json.loads(f.read_text()).get("mcpServers") or {}) if f.exists() else {}
+        servers = (json.loads(f.read_text(encoding="utf-8")).get("mcpServers") or {}) if f.exists() else {}
     except ValueError:
         return []
     claude = shutil.which("claude")
@@ -271,7 +271,7 @@ def _codex(wrap: bool, dry_run: bool, python: str | None, home: Path) -> list[Ch
     f = home / ".codex" / "config.toml"
     if not f.exists():
         return []
-    text = f.read_text()
+    text = f.read_text(encoding="utf-8")
     try:
         before = tomllib.loads(text)
     except tomllib.TOMLDecodeError as e:
@@ -314,7 +314,7 @@ def _codex(wrap: bool, dry_run: bool, python: str | None, home: Path) -> list[Ch
         backup = f.with_name(f.name + ".interlock-backup")
         if not backup.exists():
             shutil.copy2(f, backup)
-        f.write_text(new_text)
+        f.write_text(new_text, encoding="utf-8")
     return out + [Change("codex", n, str(f), "wrapped" if wrap else "unwrapped") for n in changed]
 
 

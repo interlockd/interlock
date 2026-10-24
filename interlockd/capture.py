@@ -60,7 +60,7 @@ def stop(home: Path) -> bool:
 
 def active(home: Path, harness: str) -> bool:
     try:
-        st = json.loads((home / STATE).read_text())
+        st = json.loads((home / STATE).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return False
     try:
@@ -100,8 +100,15 @@ def load(home: Path, harness: str | None = None) -> dict[str, list[dict]]:
     out: dict[str, list[dict]] = {}
     for d in sorted(root.iterdir()) if root.exists() else []:
         if d.is_dir() and (harness is None or d.name == harness):
-            out[d.name] = [json.loads(f.read_text()) for f in sorted(d.glob("*.json"))]
+            out[d.name] = [json.loads(f.read_text(encoding="utf-8")) for f in sorted(d.glob("*.json"))]
     return out
+
+
+def _same_call(pre: dict, post: dict) -> bool:
+    p, q = pre.get("payload") or {}, post.get("payload") or {}
+    return (post["normalized"]["kind"] == "post_action" and post["normalized"]["tool"] == pre["normalized"]["tool"]
+            and isinstance(p, dict) and isinstance(q, dict) and p.get("session_id") == q.get("session_id")
+            and p.get("tool_input") == q.get("tool_input"))
 
 
 def report(caps: dict[str, list[dict]]) -> str:
@@ -118,10 +125,13 @@ def report(caps: dict[str, list[dict]]) -> str:
         for name, keys in sorted(events.items()):
             lines.append(f"  {name:<22} keys: {', '.join(sorted(keys))[:150]}")
         posts = {r["normalized"]["tool_call_id"] for r in recs if r["normalized"]["kind"] == "post_action" and r["normalized"]["tool_call_id"]}
-        for r in recs:
+        for i, r in enumerate(recs):
             n, v = r["normalized"], r["verdict"]
             if n["kind"] == "pre_action" and v["mode"] == "enforce" and v["disposition"] in ("block", "ask"):
-                held = "no" if n["tool_call_id"] and n["tool_call_id"] in posts else ("yes" if n["tool_call_id"] else "unknown (no tool id)")
+                if n["tool_call_id"]:
+                    held = "no" if n["tool_call_id"] in posts else "yes"
+                else:   # no tool id (Gemini CLI): a result for the same call in the same session means it ran
+                    held = "no" if any(_same_call(r, later) for later in recs[i + 1:]) else "yes (no result for this call)"
                 lines.append(f"  refused {n['tool']:<18} {', '.join(v['rules'])[:60]:<60} block held: {held}")
             if n["kind"] == "post_action" and v["disposition"] in ("withhold", "warn"):
                 lines.append(f"  {v['disposition']:<8} result of {n['tool']:<14} reply: {(r.get('reply') or '')[:90]!r}")
@@ -157,7 +167,7 @@ def export(caps: dict[str, list[dict]], dst: Path) -> list[Path]:
         for i, r in enumerate(recs, 1):
             n = r["normalized"]
             f = d / f"{i:02d}-{n['kind'].split('_')[0]}-{re.sub(r'[^A-Za-z0-9_.-]', '_', n['tool'])[:40]}.json"
-            f.write_text(json.dumps(redact(r["payload"]), indent=2) + "\n")
+            f.write_text(json.dumps(redact(r["payload"]), indent=2) + "\n", encoding="utf-8")
             out.append(f)
     return out
 
@@ -167,17 +177,19 @@ def scratch(path: Path) -> Path:
     import subprocess
 
     path.mkdir(parents=True, exist_ok=True)
-    (path / "README.md").write_text(SCRATCH_README)
+    (path / "README.md").write_text(SCRATCH_README, encoding="utf-8")
     (path / ".interlock").mkdir(exist_ok=True)
-    (path / ".interlock" / "policy.yaml").write_text("# verification only: enforce inside this folder\nmode: enforce\n")
+    (path / ".interlock" / "policy.yaml").write_text("# verification only: enforce inside this folder\nmode: enforce\n", encoding="utf-8")
     if not (path / ".git").exists():
         subprocess.run(["git", "init", "-q"], cwd=path, check=False)
         subprocess.run(["git", "remote", "add", "origin", "https://github.com/example/scratch.git"], cwd=path, check=False)
+        # a block that fails must not reach a real host: pushes go to a path that does not exist
+        subprocess.run(["git", "config", "remote.origin.pushurl", str(path / ".git" / "no-such-remote")], cwd=path, check=False)
     return path
 
 
 def _write(path: Path, data: dict) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0), 0o600)
     with os.fdopen(fd, "w") as f:
         f.write(json.dumps(data, indent=2) + "\n")

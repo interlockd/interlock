@@ -266,7 +266,7 @@ def auto_label(cases: list[dict], ws_root: Path, *, policy=None, corpus_trust: d
 
 def read_jsonl(path: Path) -> list[dict]:
     out = []
-    for lineno, line in enumerate(Path(path).read_text().splitlines(), 1):
+    for lineno, line in enumerate(Path(path).read_text(encoding="utf-8").splitlines(), 1):
         if line.strip():
             try:
                 out.append(json.loads(line))
@@ -277,7 +277,7 @@ def read_jsonl(path: Path) -> list[dict]:
 
 def write_jsonl(path: Path, cases: list[dict]) -> None:
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    Path(path).write_text("".join(json.dumps(c, ensure_ascii=False) + "\n" for c in cases))
+    Path(path).write_text("".join(json.dumps(c, ensure_ascii=False) + "\n" for c in cases), encoding="utf-8")
 
 
 # ---- importers -------------------------------------------------------------------------------------

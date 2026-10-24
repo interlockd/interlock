@@ -21,9 +21,9 @@ def home(tmp_path):
     h = tmp_path / "home"
     for d in (".ssh", ".interlock", "Library/LaunchAgents", "proj"):
         (h / d).mkdir(parents=True)
-    (h / ".ssh" / "id_ed25519").write_text("PRIVATE")
-    (h / ".interlock" / "token").write_text("tok\n")
-    (h / ".interlock" / "hook.log").write_text("")
+    (h / ".ssh" / "id_ed25519").write_text("PRIVATE", encoding="utf-8")
+    (h / ".interlock" / "token").write_text("tok\n", encoding="utf-8")
+    (h / ".interlock" / "hook.log").write_text("", encoding="utf-8")
     return h
 
 
@@ -37,10 +37,10 @@ def test_protected_writes_refused_ordinary_work_allowed(home):
         t = target.replace("~", str(home))
         r = _sh(home, f"echo x >> '{t}'")
         assert r.returncode != 0 and "not permitted" in r.stderr, target
-        assert not Path(t).exists() or Path(t).read_text() == "", target
+        assert not Path(t).exists() or Path(t).read_text(encoding="utf-8") == "", target
     r = _sh(home, f"echo ok > '{home}/proj/file.txt' && echo log >> '{home}/.interlock/hook.log' && cat '{home}/.interlock/token'")
     assert r.returncode == 0 and r.stdout.strip() == "tok"            # project writes, the hook log, and the token work
-    assert (home / "proj" / "file.txt").read_text() == "ok\n"
+    assert (home / "proj" / "file.txt").read_text(encoding="utf-8") == "ok\n"
     assert _sh(home, f"cat '{home}/.ssh/id_ed25519'").stdout == "PRIVATE"   # reads allowed by default (git over SSH)
 
 
@@ -93,13 +93,13 @@ linux = pytest.mark.skipif(not _bwrap_works(), reason="Linux bubblewrap with use
 
 @linux
 def test_linux_protected_writes_refused(home):
-    (home / ".zshrc").write_text("")                                    # bwrap protects existing paths
-    (home / ".ssh" / "authorized_keys").write_text("")
+    (home / ".zshrc").write_text("", encoding="utf-8")                                    # bwrap protects existing paths
+    (home / ".ssh" / "authorized_keys").write_text("", encoding="utf-8")
     for target in (home / ".zshrc", home / ".ssh" / "authorized_keys", home / ".interlock" / "token"):
         r = _sh(home, f"echo x >> '{target}'")
         assert r.returncode != 0, target
     r = _sh(home, f"echo ok > '{home}/proj/file.txt' && echo log >> '{home}/.interlock/hook.log' && cat '{home}/.interlock/token'")
-    assert r.returncode == 0 and r.stdout.strip() == "tok" and (home / "proj" / "file.txt").read_text() == "ok\n"
+    assert r.returncode == 0 and r.stdout.strip() == "tok" and (home / "proj" / "file.txt").read_text(encoding="utf-8") == "ok\n"
 
 
 @linux

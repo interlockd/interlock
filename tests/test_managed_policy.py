@@ -24,7 +24,7 @@ def _no_stat_cache(monkeypatch):
 
 
 def _write(home, data):
-    mp.managed_path(home).write_text(data if isinstance(data, str) else yaml.safe_dump(data))
+    mp.managed_path(home).write_text(data if isinstance(data, str) else yaml.safe_dump(data), encoding="utf-8")
 
 
 def _daemon(settings, pol=None):
@@ -100,7 +100,7 @@ def test_a_trusted_repository_policy_cannot_lower_the_floor(settings, tmp_path, 
     repo = tmp_path / "repo"
     (repo / ".interlock").mkdir(parents=True)
     (repo / ".interlock" / "policy.yaml").write_text(yaml.safe_dump(
-        {"mode": "shadow", "packs": {"overrides": {"shell.pipe_to_shell": {"action": "allow"}}}}))
+        {"mode": "shadow", "packs": {"overrides": {"shell.pipe_to_shell": {"action": "allow"}}}}), encoding="utf-8")
     pol = Policy()
     pol.trust.trusted_workspaces = [str(repo)]
     _write(settings.home, {"mode": "enforce", "packs": {"overrides": {"shell.pipe_to_shell": {"action": "block"}}}})

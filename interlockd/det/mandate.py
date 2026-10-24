@@ -71,7 +71,7 @@ def evaluate_mandate(policy: Policy, res: DetResult, *, agent_id: str, workspace
         if not p.exists():
             out.unjudged = ["mandate"]
             return out
-        text = p.read_text() + "\n" + text
+        text = p.read_text(encoding="utf-8") + "\n" + text
     action, ctx_input = bind_action(res, "")
     if action is None:
         out.unjudged = ["mandate"]

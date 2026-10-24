@@ -9,7 +9,8 @@ pipx install interlockd        # or: uv tool install interlockd, or: brew instal
 interlock init
 ```
 
-macOS and Linux. On Windows, do everything here inside WSL2 (Ubuntu) and run your agents from the WSL terminal.
+macOS and Linux. On Windows, do everything here inside WSL2 (Ubuntu) and run your agents from the WSL terminal. (Natively on
+Windows, the daemon and the SDKs already work: see the user guide, §2.)
 
 `init` lists everything it will change and asks first. It then:
 

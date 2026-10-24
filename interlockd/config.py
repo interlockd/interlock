@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -43,7 +44,7 @@ class Settings:
     dynamodb_table: str | None = None
     aws_region: str | None = None
     aws_profile: str | None = None
-    unix_socket: bool = True                     # also serve on <home>/interlockd.sock (0600); hooks prefer it
+    unix_socket: bool = sys.platform != "win32"  # also serve on <home>/interlockd.sock (0600); hooks prefer it
     otlp_endpoint: str | None = None               # e.g. http://localhost:4318/v1/traces (OpenTelemetry export)
     otlp_headers: dict[str, str] = field(default_factory=dict)
 
@@ -67,7 +68,7 @@ class Settings:
     def load(cls, home: Path | None = None) -> Settings:
         s = cls() if home is None else cls(home=Path(home).expanduser())
         if s.config_path.exists():
-            data = json.loads(s.config_path.read_text())
+            data = json.loads(s.config_path.read_text(encoding="utf-8"))
             for k, v in data.items():
                 if k == "kiro_sessions_dir":
                     v = Path(v).expanduser()

@@ -22,7 +22,7 @@ PRE = {"session_id": "u1", "cwd": "/ws", "hook_event_name": "PreToolUse", "tool_
 @pytest.fixture
 def short_home():
     d = Path(tempfile.mkdtemp(prefix="ilsock", dir="/tmp"))     # socket paths are length-limited (~104 bytes)
-    (d / "token").write_text("tok\n")
+    (d / "token").write_text("tok\n", encoding="utf-8")
     yield d
     shutil.rmtree(d, ignore_errors=True)
 
@@ -48,10 +48,10 @@ def test_socket_is_private(server, short_home):
 
 @pytest.mark.skipif(shutil.which("curl") is None, reason="curl not available")
 def test_shim_uses_the_socket(server, short_home):
-    shim = short_home / "shim.sh"; shim.write_text(SHIM.read_text().replace("__HARNESS__", "claude-code"))
+    shim = short_home / "shim.sh"; shim.write_text(SHIM.read_text(encoding="utf-8").replace("__HARNESS__", "claude-code"), encoding="utf-8")
     env = {k: v for k, v in os.environ.items() if k != "INTERLOCK_URL"}
     env["INTERLOCK_HOME"] = str(short_home)
-    (short_home / "daemon.json").write_text(json.dumps({"listen": "127.0.0.1:9"}))   # TCP would fail: only the socket works
+    (short_home / "daemon.json").write_text(json.dumps({"listen": "127.0.0.1:9"}), encoding="utf-8")   # TCP would fail: only the socket works
     r = subprocess.run(["sh", str(shim)], input=json.dumps(PRE), text=True, capture_output=True, env=env, timeout=10, check=False)
     assert json.loads(r.stdout)["hookSpecificOutput"]["permissionDecision"] == "deny"
     host, port = server.address                                  # an explicit URL still wins over the socket
