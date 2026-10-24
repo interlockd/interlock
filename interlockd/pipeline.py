@@ -54,6 +54,9 @@ class Daemon:
         from .policy.workspace import RepoPolicies
 
         self.repo_policies = RepoPolicies(interlock_home=settings.home)
+        from .policy.managed import ManagedPolicy
+
+        self.managed_policy = ManagedPolicy(settings.home)
         self.backend = None      # DecisionBackend, set by the CLI from policy.judge.primary
         self.probe = None        # BedrockGuardrailsProbe, set by the CLI when policy.judge.probe.enabled
         from .control import PauseState
@@ -277,6 +280,10 @@ class Daemon:
         # a repository policy can switch enforce on, never off, unless you trust that repository
         mode = self.mode if repo_pol is None else (pol.mode if repo_pol["trusted"] else
                                                      "enforce" if pol.mode == "enforce" else self.mode)
+        # the managed policy is applied last, tighten-only: a floor no other layer can lower
+        pol, managed_pol = self.managed_policy.resolve(pol)
+        if managed_pol is not None and managed_pol["enforce"]:
+            mode = "enforce"
         tier = route(
             event,
             workspace_roots=pol.trust.workspace_roots,
@@ -378,6 +385,9 @@ class Daemon:
         rec["timing_ms"] = dict(verdict.timing_ms)  # the stored copy must not alias the live verdict
         if repo_pol is not None:
             rec["policy_sha256"], rec["workspace_policy"] = pol.sha256, repo_pol
+        if managed_pol is not None:
+            rec["policy_sha256"] = pol.sha256
+            rec["managed_policy"] = {k: managed_pol[k] for k in ("path", "sha256", "ignored")}
         self.spool.append(rec)
         if self.otel is not None:
             self.otel.submit(rec)

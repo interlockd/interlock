@@ -110,9 +110,15 @@ def cmd_serve(args) -> int:
     from .watch import HookWatch
 
     watch = HookWatch(daemon, s.home).start()
+    from . import plugins
+
+    plugin_stops = plugins.start(daemon, s.home)      # installed plugins' background work (none by default)
+    for pl in plugins.active():
+        print(f"plugin: {pl.name} {pl.version}")
 
     def stop(*_):
         watch.stop()
+        plugins.stop(plugin_stops)
         # shutdown() blocks until serve_forever() returns, and the signal handler runs on the serving thread,
         # so it must be called from another thread or the daemon deadlocks while still holding the socket.
         print("shutting down")
@@ -1661,6 +1667,18 @@ def cmd_policy(args) -> int:
         for k in ignored:
             print(f"  ! {k}: not applied (a repository policy can only tighten yours)" if not k.startswith("(")
                   else f"  ✗ {k}: the whole file is ignored")
+    from .policy.managed import apply_managed, read_managed
+
+    managed = read_managed(s.home)
+    if managed is not None:
+        pol, m_ignored = apply_managed(pol, managed)
+        ignored += m_ignored if managed.data is None else []
+        loosening = [] if managed.data is None else m_ignored
+        print(f"managed policy: {managed.path} (applied last, tighten-only; "
+              f"{len(loosening)} setting(s) ignored because they would loosen)")
+        for k in m_ignored:
+            print(f"  ! {k}: not applied (a managed policy can only tighten)" if not k.startswith("(")
+                  else f"  ✗ {k}: the whole file is ignored")
     print(f"policy: {pol.source_paths or ['built-in defaults']}")
     text, rc = format_issues(lint(pol))
     print(text)
@@ -1797,6 +1815,21 @@ def cmd_capture(args) -> int:
     files = capture.export(caps, Path(args.dir).expanduser())
     print(f"wrote {len(files)} redacted payloads to {args.dir}; review them before committing")
     return 0
+
+
+def cmd_plugins(args) -> int:
+    from . import plugins
+
+    if not plugins.enabled():
+        print("plugins are off (INTERLOCK_PLUGINS=0)")
+        return 0
+    found = plugins.load()
+    if not found:
+        print(f"no plugins installed (entry-point group {plugins.GROUP})")
+        return 0
+    for p in found:
+        print(f"{p.name:<16} {p.version:<10} {p.target}" + (f"   FAILED: {p.error}" if p.error else ""))
+    return 1 if any(p.error for p in found) else 0
 
 
 def cmd_judge(args) -> int:
@@ -1977,6 +2010,9 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(fn=cmd_pause)
     p = sub.add_parser("resume", help="lift `interlock pause`"); p.set_defaults(fn=cmd_pause)
 
+    p = sub.add_parser("plugins", help="list installed plugins (packages registered under interlockd.plugins)")
+    p.set_defaults(fn=cmd_plugins)
+
     p = sub.add_parser("judge", help="run the optional judge model locally (install | status | remove)")
     p.add_argument("action", choices=["install", "status", "remove"]); p.add_argument("--port", type=int, default=8017)
     p.add_argument("-y", "--yes", action="store_true")
@@ -2088,6 +2124,9 @@ def main(argv: list[str] | None = None) -> int:
     pv.add_argument("file", help="the results.jsonl to validate")
     pv.set_defaults(fn=cmd_ogr_validate)
 
+    from . import plugins
+
+    plugins.register_cli(sub)      # subcommands from installed plugins; a failing plugin is skipped with a warning
     args = ap.parse_args(argv)
     return args.fn(args)
 

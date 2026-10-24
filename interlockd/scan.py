@@ -403,5 +403,3 @@ def to_sarif(r: ScanResult, project: Path) -> dict:
             "runs": [{"tool": {"driver": {"name": "interlock", "version": __version__,
                                           "informationUri": "https://github.com/interlockd/interlock", "rules": list(rules.values())}},
                       "results": results}]}
-
-

@@ -1,6 +1,6 @@
 {
   "name": "@interlockd/sdk",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Interlock for JavaScript and TypeScript agents: check every tool call before it runs and every result before the model reads it.",
   "type": "module",
   "exports": { ".": { "types": "./src/index.d.ts", "default": "./src/index.js" } },

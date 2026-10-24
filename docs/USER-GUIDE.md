@@ -175,6 +175,14 @@ Policy is YAML. Interlock merges built-in defaults, then `~/.interlock/policy.ya
 
 To give a repository's policy full effect, list it in your own policy: `trust: { trusted_workspaces: ["~/src/my-org/*"] }`. Every verdict made under a repository policy records its path and hash (`workspace_policy` in the audit record). A policy file owned by another user (for example in a shared `/tmp`) is ignored. `INTERLOCK_REPO_POLICIES=0` turns repository policies off.
 
+**Managed policy (for device management).** Whoever manages the machine (an MDM profile, configuration management,
+a fleet agent) can place a policy at `~/.interlock/managed-policy.yaml`. It is applied last, after your policy and
+any repository policy, with the same tighten-only rules as the table above: it can make decisions stricter, never
+looser, so no other layer (not even a trusted repository) can lower it. The daemon picks up a new, changed, or
+removed file within a couple of seconds, without a restart. `interlock policy lint` lists what it ignored; a file
+that does not parse is ignored as a whole and reported. Verdicts made under it record its path and hash
+(`managed_policy` in the audit record).
+
 ```yaml
 version: 1
 workspace: my-project
@@ -596,6 +604,22 @@ The table is optional and lives in your own AWS account. A CloudFormation templa
 ### Bootstrapping the judge in a gated workspace
 
 Enabling the judge means editing the workspace policy, and `persistence.agent_config_write` gates exactly that. Before the judge exists there is nothing to resolve the resulting `ask`, so the first `judge:` section has to be written by a person, or by the agent while the daemon runs in shadow mode (`interlock serve --mode shadow`; the write is still recorded with its finding). From then on, agent edits to the policy go through the normal ask-and-confirm path.
+
+### Plugins
+
+Optional packages can add `interlock` commands and run background work next to the daemon. A plugin is any
+installed package that registers a module under the `interlockd.plugins` entry-point group:
+
+```toml
+[project.entry-points."interlockd.plugins"]
+myplugin = "my_package.plugin"
+```
+
+The module may define `register_cli(subparsers)` (add subcommands) and `on_serve(daemon, home)` (start background
+work when `interlock serve` starts; return a callable to stop it). Plugins run beside the gate, never inside it, so
+they can't change a decision. A plugin that fails to load or raises is skipped with one warning and never stops the
+CLI or the daemon. `interlock plugins` lists what's installed; `INTERLOCK_PLUGINS=0` turns them all off. Install a
+plugin into Interlock's own environment, e.g. `pipx inject interlockd <package>`.
 
 ## 7. Troubleshooting
 

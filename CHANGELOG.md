@@ -1,7 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.1.2 (2026-10-24)
 
+- Managed policy: `<interlock home>/managed-policy.yaml` is applied last and can only tighten decisions (it can switch enforce on, never loosen anything). It is reloaded without a restart; a file that doesn't parse is ignored and reported by `interlock policy lint`. For device management and centrally managed machines.
+- Plugins: installed packages that register under the `interlockd.plugins` entry-point group can add commands and run background work beside `interlock serve`. Plugins never sit in the decision path; a plugin that fails is skipped with a warning. `interlock plugins` lists them; `INTERLOCK_PLUGINS=0` turns them off.
 - Platforms stated: macOS and Linux; on Windows, `interlock` explains how to use WSL2 instead of crashing on import. Homebrew: `brew install interlockd/tap/interlock`.
 - `interlock judge install | status | remove`: run the optional judge model (Strands Decider 2B) locally in one step. The daemon starts it in the background instead of delaying startup.
 - Contributing: pull requests are imported into the development repository with author credit (`CONTRIBUTING.md`); a code of conduct; `demo/demo.sh` (and a VHS tape) for a self-contained recording.

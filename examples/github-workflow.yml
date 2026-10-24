@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      - uses: interlockd/interlock@v0.1.1
+      - uses: interlockd/interlock@v0.1.2
         with: { fail-on: high }
       - uses: github/codeql-action/upload-sarif@v3
         if: always()

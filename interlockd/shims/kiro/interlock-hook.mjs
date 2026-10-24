@@ -11,7 +11,7 @@ import { readFileSync, appendFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 
-const VERSION = "0.1.1";
+const VERSION = "0.1.2";
 const HOME = process.env.INTERLOCK_HOME || path.join(homedir(), ".interlock");
 const BASE = (process.env.INTERLOCK_URL || readListen() || "http://127.0.0.1:7391").replace(/\/$/, "");
 const PRE_TIMEOUT_MS = Number(process.env.INTERLOCK_PRE_TIMEOUT_MS || 1500);
