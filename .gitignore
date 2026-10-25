@@ -218,3 +218,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# exported shadow traffic (interlock corpus export): your own recorded calls, never committed
+corpus/shadow/*.jsonl
