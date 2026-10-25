@@ -32,3 +32,6 @@ pip download interlockd==<version> --no-deps -d /tmp/il && gh attestation verify
 ```
 
 PyPI shows the same provenance on each file's page ("Verified details").
+
+From 0.1.6, `@interlockd/sdk` is published to npm by the same workflow with npm trusted publishing, with npm
+provenance (shown on its npm page). In a project that depends on it: `npm audit signatures`.
