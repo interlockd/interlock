@@ -44,10 +44,14 @@ console.log(JSON.stringify(out));
 def _node_works() -> bool:
     if shutil.which("node") is None:
         return False
-    try:
-        return subprocess.run(["node", "--version"], capture_output=True, timeout=10, check=False).returncode == 0
-    except OSError:
-        return False
+    for timeout in (15, 45):             # a cold node on a shared Windows runner has taken over 10 s to answer
+        try:
+            return subprocess.run(["node", "--version"], capture_output=True, timeout=timeout, check=False).returncode == 0
+        except subprocess.TimeoutExpired:
+            continue
+        except OSError:
+            return False
+    return False
 
 
 pytestmark = pytest.mark.skipif(not _node_works() or SDK is None, reason="node or sdk/js not available")
