@@ -1,0 +1,5 @@
+# Trust context the red-team scenarios assume (read like a corpus' _corpus.yaml). A field applies only where the
+# policy under test still has Interlock's default, so `interlock redteam --policy` keeps your own lists.
+trust:
+  allowed_git_remotes:
+    - "github.com/example-org/*"

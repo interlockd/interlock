@@ -139,6 +139,7 @@ Log: `~/.interlock/mcp-proxy.log`. Pins: `~/.interlock/mcp-pins.json`; after rev
 | `interlock start \| stop \| restart \| status` | Manage the background daemon; `status` shows service, mode, policy, and hooks. |
 | `interlock enforce \| shadow` | Switch mode in `~/.interlock/policy.yaml` (comments kept) and restart the daemon. Warns if a workspace policy sets its own mode. |
 | `interlock report [--days N] [--json]` | What the gate decided: what enforce would have blocked or asked in shadow mode, what was enforced, top rules, recent stops, latency. |
+| `interlock redteam [--policy] [--workspace W] [--corpus DIR] [--only PACK] [--strict] [--json P]` | Replay attack scenarios through the deterministic pipeline and a policy and report what gets through; exits 1 on a regression (§3.4). |
 | `interlock scan [--project P] [--json] [--all] [--fail-on high\|medium\|low\|never]` | Static audit of the MCP servers and agent settings on this machine, and of the project's own agent configs, prompts and agent code (no daemon, no network, secret values never printed; repository checks below): unpinned `npx`/`uvx`/docker packages, plain-HTTP remotes, inline secrets, filesystem roots at `/` or `~`, inline shell servers, auto-approved tools, permission-bypass modes, agents Interlock is not protecting, and committed agent instruction files (AGENTS.md, CLAUDE.md, `.cursor/rules/`, ...) that carry injected instructions or invisible Unicode. Reads Claude Code, Claude Desktop, Codex, Cursor, VS Code, Kiro, Gemini CLI, and Windsurf configs. Exits 1 at or above `--fail-on` (default `high`), so it can gate CI. |
 | `interlock gateway wrap \| unwrap \| status [--dry-run]` | Route every stdio MCP server through the MCP gateway (§2.1). `wrap` rewrites each server's launch command (original kept after `--`, a `.interlock-backup` copy written once); `unwrap` restores them exactly; `status` shows which servers are protected. `interlock init --gateway` wraps, `uninstall` unwraps. |
 | `interlock mcp-proxy --name N -- <cmd...>` | The gateway itself; normally written into MCP configs by `gateway wrap` rather than run by hand. |
@@ -530,6 +531,24 @@ A `meets = yes` row is the credible result; `NO` means the dev fit did not gener
 **Writing the bands into policy.** `--write-bands <policy.yaml>` merges the fitted thresholds into that file's `judge.bands` section (`intent_ask_below`, `intent_block_below`, `injection_warn_at`, `injection_withhold_at`, `confirm_allow_at`, `exfil_ask_at`), printing a diff of each change. It **refuses to write a question's bands unless that question meets its targets on held-out**; pass `--force` to override (and own the consequence). Re-run calibration on every judge/model-version change — the question wording is versioned with the daemon, so changing it is a corpus re-run.
 
 `interlock test --judge <spec>` is also accepted: it runs the deterministic pass as usual and then appends a one-line judge summary, for a quick combined check.
+
+### 3.4 Red-teaming your policy (`interlock redteam`)
+
+`interlock test` checks rules case by case; `interlock redteam` asks the attacker's question: run these attacks against this policy, what gets through? Each scenario is replayed in a fresh session and a fresh temporary workspace through the same pipeline the daemon runs (tiers, packs, flow rules, mandate, the post-action injection heuristics, the gateway's tool screening), with no judge, no Guardrails, no classifier model and no network.
+
+Built-in packs (`interlockd/data/redteam/`): `injection_tool_results` (instructions in fetched pages, READMEs, issues and MCP results, then the action they ask for), `exfiltration`, `persistence`, `supply_chain` and `mcp_poisoning` (poisoned tool descriptions, tool shadowing, a rug pull, poisoned call results). In a source checkout and in the GitHub Action the attack cases of `corpus/archetypes` replay too (`--no-archetypes` leaves them out); `--corpus DIR` adds your own.
+
+A scenario is either a corpus case (`cmd`, or `tool` and `args`) or a list of `steps`, each `{"kind": "pre", ...}` (a tool call), `{"kind": "post", "tool": ..., "result": "..."}` (a tool result) or `{"kind": "tools", "server": ..., "tools": [...]}` (an MCP tools/list); see the module docstring of `interlockd/redteam.py`. `expect` is the strongest outcome expected over the steps, in the order allow < warn < model < ask < block = withhold = hidden. The report counts each scenario as:
+
+| Outcome | Meaning |
+|---|---|
+| stopped | at least as strong as expected |
+| weaker | still stopped (ask or stronger) but weaker than expected, e.g. a block that is now an ask; fails only with `--strict` |
+| THROUGH | expected to be stopped and nothing stopped it: a regression, the command exits 1 |
+| gap | a documented known gap (`"known_gap": true`) that still gets through; listed, not a failure |
+| skip | judge-dependent (expects `model`, or a judge-only case): a deterministic replay can't decide it |
+
+By default the packs run against Interlock's default policy (a regression there is a bug in Interlock); `--policy` replays them against your layered policy (`~/.interlock/policy.yaml`, the workspace policy with `--workspace`, and the managed policy), which is the useful check before you soften a rule. Scenario trust assumptions live in `interlockd/data/redteam/_corpus.yaml` (as for a corpus) and apply only where your policy keeps Interlock's default. Without a judge, injected tool results get a warning rather than being withheld; the scenarios say so. In the GitHub Action, set `redteam: "true"` (and optionally `redteam-scenarios: <dir>`).
 
 ## 4. Harnesses
 
