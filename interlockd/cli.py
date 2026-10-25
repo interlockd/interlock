@@ -1824,6 +1824,7 @@ def cmd_plugins(args) -> int:
         print("plugins are off (INTERLOCK_PLUGINS=0)")
         return 0
     found = plugins.load()
+    print(f"plugin API {plugins._api_version()} (interlockd.plugin_api)")
     if not found:
         print(f"no plugins installed (entry-point group {plugins.GROUP})")
         return 0

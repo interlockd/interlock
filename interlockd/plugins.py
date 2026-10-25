@@ -11,6 +11,9 @@ The module may define either or both hooks:
     def on_serve(daemon, home): ...            # `interlock serve` started; begin background work, never block.
                                                # Return a callable to stop it on shutdown, or None.
 
+Plugins should use only `interlockd.plugin_api` (the stable, versioned interface) besides these hooks; a module that
+sets `PLUGIN_API = <n>` higher than this interlockd's `plugin_api.API_VERSION` is skipped with a message to upgrade.
+
 Plugins can't change a decision: they run beside the gate, never inside it. A plugin that fails to import or raises
 in a hook logs one warning and is skipped; it never stops the CLI or the daemon. `INTERLOCK_PLUGINS=0` turns all
 plugins off. `interlock plugins` lists what's installed.
@@ -67,8 +70,19 @@ def load() -> list[Plugin]:
         except Exception as e:  # noqa: BLE001 - a broken plugin is skipped, never fatal
             p.error = f"{type(e).__name__}: {e}"
             log.warning("plugin %s (%s) failed to load and is skipped: %s", p.name, p.target, p.error)
+        else:
+            need, have = getattr(p.module, "PLUGIN_API", 1), _api_version()
+            if not isinstance(need, int) or need > have:
+                p.module, p.error = None, f"needs plugin API {need}; this interlockd has {have} (upgrade interlockd)"
+                log.warning("plugin %s is skipped: %s", p.name, p.error)
         _loaded.append(p)
     return _loaded
+
+
+def _api_version() -> int:
+    from .plugin_api import API_VERSION
+
+    return API_VERSION
 
 
 def reset() -> None:
