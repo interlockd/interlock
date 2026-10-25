@@ -1,8 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.1.5 (2026-10-24)
 
 - Plugin API: `interlockd.plugin_api` (version 1) is the stable interface for plugins (settings, policy validation, the managed policy, daemon status, hook integrity, audit records without tool content), covered by contract tests. A plugin can require a newer API with `PLUGIN_API = <n>`; an older interlockd skips it with a message. `interlock plugins` shows the API version.
+- `examples/aws/interlock-audit.yaml`: a CloudFormation sample for the optional DynamoDB audit table (it keeps the table, and your audit records, if the stack is deleted); the user guide links it.
 
 ## 0.1.4 (2026-10-24)
 
