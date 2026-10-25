@@ -187,6 +187,149 @@ def _flow(p: Policy, base: Policy, val: dict, ignored: list[str]) -> None:
             ignored.append(f"flow.{k}")
 
 
+def compose(docs: list[Any]) -> dict[str, Any]:
+    """One document that tightens a policy as applying `docs` one after another with `tighten` would.
+
+    For every base policy P: `tighten(P, compose([D1, D2, ...]))` is the policy `tighten(tighten(P, D1), D2) ...`
+    (tests/test_policy_compose.py checks this on random policies). Each setting follows `tighten`: `mode: enforce` wins;
+    rule actions, the MCP default and the flow action take the strictest; packs, paths, branches, flow sources and sinks,
+    and denied OAuth scopes are unions; allowed hosts and package indexes are intersections; denial budgets take the
+    smallest; anything `tighten` ignores is left out. An MCP `ask` from a layer after one that blocks something is left
+    out, as the machine would ignore it.
+
+    One exception: `trust.allowed_git_remotes` is narrowed left to right, skipping a layer that shares no remote with
+    the result so far. On a machine whose own policy lists remotes, a layer that shares none with that list is skipped
+    there instead, so the outcome can differ from applying the layers one by one; it is never looser than the machine's
+    own list.
+
+    For layering policies centrally (a baseline plus group policies) into the one managed policy a machine applies.
+    """
+    from ..det import RULES, flow, mcp, oauth, packs  # noqa: F401  register every rule
+
+    enforce, declared, budget_block, flow_enabled, mcp_seen, oauth_seen, pin, blocked = (False,) * 8
+    enabled: list[str] = []
+    overrides: dict[str, str] = {}
+    unions: dict[str, list[str]] = {k: [] for k in ("protected_paths", "sensitive_paths", "protected_branches")}
+    allow: dict[str, list[str] | None] = {"allowed_hosts": None, "allowed_package_indexes": None}
+    remotes: list[str] | None = None
+    mcp_default, mcp_tools, deny_scopes = "allow", {}, []
+    flow_action: str | None = None
+    flow_lists: dict[str, list[str]] = {k: [] for k in ("private_sources", "untrusted_sources", "sinks")}
+    budget: dict[str, int] = {}
+
+    def union(into: list[str], items: list) -> None:
+        into.extend(x for x in (str(i) for i in items) if x not in into)
+
+    for doc in docs:
+        if not isinstance(doc, dict):
+            continue
+        if doc.get("mode") == "enforce":
+            enforce = True
+        pk = doc.get("packs")
+        if isinstance(pk, dict):
+            if isinstance(pk.get("enabled"), list):
+                union(enabled, pk["enabled"])
+            for rid, raw in (pk.get("overrides") if isinstance(pk.get("overrides"), dict) else {}).items():
+                try:
+                    ov = RuleOverride.model_validate(raw or {})
+                except ValueError:
+                    continue
+                if (rid in RULES and ov.enabled and ov.action is not None
+                        and (rid not in overrides or ORDER[ov.action] > ORDER[overrides[rid]])):
+                    overrides[rid] = ov.action
+        tr = doc.get("trust")
+        if isinstance(tr, dict):
+            for k, into in unions.items():
+                if isinstance(tr.get(k), list):
+                    union(into, tr[k])
+            for k, cur in allow.items():
+                if isinstance(tr.get(k), list):
+                    v = [str(x) for x in tr[k]]
+                    allow[k] = v if cur is None else [h for h in cur if h in v]
+            v = tr.get("allowed_git_remotes")
+            if isinstance(v, list) and v:
+                v = [str(x) for x in v]
+                keep = v if remotes is None else [r for r in remotes if r in v]
+                if keep:
+                    remotes = keep
+            if tr.get("declared_packages_only") is True:
+                declared = True
+        mv = doc.get("mcp")
+        if isinstance(mv, dict):
+            try:
+                m = McpPolicy.model_validate(mv)
+            except ValueError:
+                m = None
+            if m is not None:
+                mcp_seen = True
+                if ORDER[m.default] > ORDER[mcp_default]:
+                    mcp_default = m.default
+                if "oauth" in mv:
+                    oauth_seen = True
+                    union(deny_scopes, m.oauth.deny_scopes)
+                    pin = pin or m.oauth.pin_authorization_servers
+                for pat, action in m.tools.items():
+                    if action == "block":
+                        mcp_tools[pat] = "block"
+                    elif action == "ask" and not blocked and pat not in mcp_tools:
+                        mcp_tools[pat] = "ask"
+                blocked = blocked or m.default == "block" or "block" in m.tools.values()
+        fl = doc.get("flow")
+        if isinstance(fl, dict):
+            if fl.get("enabled") is True:
+                flow_enabled = True
+            a = fl.get("action")
+            if a in ("block", "ask", "flag") and (flow_action is None or ORDER[a] > ORDER[flow_action]):
+                flow_action = a
+            for k, into in flow_lists.items():
+                if isinstance(fl.get(k), list):
+                    union(into, fl[k])
+        db = doc.get("denial_budget")
+        if isinstance(db, dict):
+            for k in ("consecutive", "total"):
+                v = db.get(k)
+                if isinstance(v, int) and v > 0:
+                    budget[k] = min(budget.get(k, v), v)
+            if db.get("then") == "block":
+                budget_block = True
+
+    out: dict[str, Any] = {}
+    if enforce:
+        out["mode"] = "enforce"
+    packs_out = {**({"enabled": enabled} if enabled else {}),
+                 **({"overrides": {r: {"action": a} for r, a in overrides.items()}} if overrides else {})}
+    if packs_out:
+        out["packs"] = packs_out
+    trust_out: dict[str, Any] = {k: v for k, v in unions.items() if v}
+    trust_out.update({k: v for k, v in allow.items() if v is not None})
+    if remotes:
+        trust_out["allowed_git_remotes"] = remotes
+    if declared:
+        trust_out["declared_packages_only"] = True
+    if trust_out:
+        out["trust"] = trust_out
+    if mcp_seen:
+        mcp_out: dict[str, Any] = {}
+        if mcp_default != "allow":
+            mcp_out["default"] = mcp_default
+        if mcp_tools:
+            mcp_out["tools"] = mcp_tools
+        if oauth_seen:
+            mcp_out["oauth"] = {"deny_scopes": deny_scopes, "pin_authorization_servers": pin}
+        if mcp_out:
+            out["mcp"] = mcp_out
+    flow_out: dict[str, Any] = {k: v for k, v in flow_lists.items() if v}
+    if flow_enabled:
+        flow_out["enabled"] = True
+    if flow_action:
+        flow_out["action"] = flow_action
+    if flow_out:
+        out["flow"] = flow_out
+    if budget or budget_block:
+        out["denial_budget"] = {**budget, **({"then": "block"} if budget_block else {})}
+    return out
+
+
 class RepoPolicies:
     """Resolve and cache the policy for a call's working directory. Thread-safe; a changed file is re-read."""
 

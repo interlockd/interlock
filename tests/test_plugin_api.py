@@ -26,11 +26,13 @@ def test_version_one_surface_is_complete():
         assert hasattr(plugin_api, name), name
     sigs = {n: list(inspect.signature(getattr(plugin_api, n)).parameters) for n in
             ("settings_from_args", "spool_dir", "load_policy", "validate_policy", "managed_policy_path",
-             "check_managed_policy", "effective_policy", "daemon_status", "hook_status", "decisions")}
+             "check_managed_policy", "effective_policy", "daemon_status", "hook_status", "decisions",
+             "tighten_policy", "compose_policies", "lint_policy")}
     assert sigs == {"settings_from_args": ["args"], "spool_dir": ["home"], "load_policy": ["home"],
                     "validate_policy": ["data"], "managed_policy_path": ["home"],
                     "check_managed_policy": ["data", "base", "home"], "effective_policy": ["policy", "home"],
-                    "daemon_status": ["daemon"], "hook_status": ["home"], "decisions": ["spool", "since", "until"]}
+                    "daemon_status": ["daemon"], "hook_status": ["home"], "decisions": ["spool", "since", "until"],
+                    "tighten_policy": ["base", "data"], "compose_policies": ["docs"], "lint_policy": ["policy"]}
 
 
 def test_settings_and_paths(tmp_path, monkeypatch):
@@ -119,3 +121,16 @@ def test_plugin_needing_a_newer_api_is_skipped(monkeypatch):
         assert loaded["b_ok"].module is ok and not loaded["b_ok"].error
     finally:
         plugins.reset()
+
+
+def test_tighten_compose_and_lint():
+    base = plugin_api.validate_policy({})
+    pol, ignored = plugin_api.tighten_policy(base, {"mode": "enforce", "trust": {"allowed_hosts": ["evil.example"]},
+                                                    "sha256": "x"})
+    assert pol.mode == "enforce" and ignored == ["trust.allowed_hosts (hosts you have not allowed)"]
+    doc = plugin_api.compose_policies([{"mode": "enforce"}, {"trust": {"protected_branches": ["prod"]}}, "junk"])
+    assert doc == {"mode": "enforce", "trust": {"protected_branches": ["prod"]}}
+    one, _ = plugin_api.tighten_policy(base, doc)
+    assert one.mode == "enforce" and "prod" in one.trust.protected_branches
+    issues = plugin_api.lint_policy(plugin_api.validate_policy({"packs": {"overrides": {"shell.pipe_to_shel": {"action": "block"}}}}))
+    assert issues and issues[0].level == "error" and "pipe_to_shell" in issues[0].message
