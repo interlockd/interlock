@@ -1,9 +1,11 @@
 name: release
 
-# Publish to PyPI when a version tag is pushed (git tag v0.1.0 && git push origin v0.1.0).
-# Uses PyPI trusted publishing: no API token is stored. One-time setup on pypi.org:
-#   project "interlockd" → Publishing → add GitHub publisher: owner interlockd, repo interlock,
-#   workflow release.yml, environment pypi.
+# Publish to PyPI and npm when a version tag is pushed (git tag v0.1.0 && git push origin v0.1.0).
+# Both use trusted publishing (OIDC): no API token is stored. One-time setup:
+#   pypi.org: project "interlockd" → Publishing → add GitHub publisher: owner interlockd, repo interlock,
+#     workflow release.yml, environment pypi.
+#   npmjs.com: package @interlockd/sdk → Settings → Trusted publishing → GitHub Actions: organization interlockd,
+#     repository interlock, workflow release.yml, environment npm.
 
 on:
   push:
@@ -27,8 +29,9 @@ jobs:
           tag="${GITHUB_REF_NAME#v}"
           pkg=$(python3 -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
           mod=$(python3 -c "import re;print(re.search(r'__version__ = \"(.+)\"', open('interlockd/__init__.py').read()).group(1))")
-          echo "tag=$tag pyproject=$pkg module=$mod"
-          [ "$tag" = "$pkg" ] && [ "$tag" = "$mod" ]
+          js=$(python3 -c "import json;print(json.load(open('sdk/js/package.json'))['version'])")
+          echo "tag=$tag pyproject=$pkg module=$mod sdk/js=$js"
+          [ "$tag" = "$pkg" ] && [ "$tag" = "$mod" ] && [ "$tag" = "$js" ]
       - name: Test
         run: |
           uv venv --python 3.12 && uv pip install -e ".[dev]" --python .venv/bin/python
@@ -65,6 +68,31 @@ jobs:
           else
             gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "$GITHUB_REF_NAME" --generate-notes
           fi
+
+  npm:
+    # @interlockd/sdk (sdk/js) with npm trusted publishing: the job's OIDC identity is the credential (npm 11.5.1+), and
+    # npm attaches provenance (which commit and workflow built it) because the repository is public.
+    needs: publish
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write          # trusted publishing + provenance
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: "24", registry-url: "https://registry.npmjs.org" }
+      - name: npm with trusted publishing
+        run: npm install -g "npm@>=11.5.1" && npm --version
+      - name: Publish @interlockd/sdk
+        working-directory: sdk/js
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          [ "$(node -p 'require("./package.json").version')" = "$v" ] || { echo "::error::sdk/js version is not $v"; exit 1; }
+          if npm view "@interlockd/sdk@$v" version >/dev/null 2>&1; then
+            echo "@interlockd/sdk@$v is already on npm (published by hand?); nothing to do"; exit 0
+          fi
+          npm publish --access public --provenance
 
   homebrew:
     # Regenerates Formula/interlock.rb from the release on PyPI. With a HOMEBREW_TAP_TOKEN secret (a fine-grained token

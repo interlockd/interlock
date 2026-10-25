@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Releases publish `@interlockd/sdk` to npm from the release workflow with npm trusted publishing (no stored token) and npm provenance; the release checks that the tag matches the JS SDK's version too.
+
 ## 0.1.5 (2026-10-24)
 
 - Plugin API: `interlockd.plugin_api` (version 1) is the stable interface for plugins (settings, policy validation, the managed policy, daemon status, hook integrity, audit records without tool content), covered by contract tests. A plugin can require a newer API with `PLUGIN_API = <n>`; an older interlockd skips it with a message. `interlock plugins` shows the API version.
