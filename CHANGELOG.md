@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.7 (2026-10-25)
 
 - Plugin API (still version 1, additive): `compose_policies(docs)` returns one policy document that tightens a policy as applying the documents one after another would, for layering policies centrally (a baseline plus group policies) into the one managed policy a machine applies; `tighten_policy(base, data)` and `lint_policy(policy)` expose the tighten-only merge and `policy lint`. A property test checks `compose` against applying the layers in order on random policies. One documented exception: `trust.allowed_git_remotes` is narrowed left to right, never looser than the machine's own list.
 
