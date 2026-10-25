@@ -235,9 +235,11 @@ GATE_PY = re.compile(r"^\s*(?:from|import)\s+interlockd\b", re.MULTILINE)
 GATE_TS = re.compile(r"""(?:from\s+|require\(\s*)['"]@interlockd/sdk""")
 TOOL_DEF_PY = re.compile(r"@(?:\w+\.)?(?:tool|function_tool)\b|\bBaseTool\b|\bStructuredTool\b|\bFunctionTool\b|\btools\s*=\s*\[")
 TOOL_DEF_TS = re.compile(r"\btool\s*\(|\btools\s*:\s*\[|\bnew\s+\w*Tool\s*\(|\bDynamicStructuredTool\b")
-# capability -> (severity, patterns); prebuilt tools of the frameworks first, then the raw calls a custom tool makes
+# capability -> (severity, patterns); prebuilt tools of the frameworks first, then the raw calls a custom tool makes.
+# Shell is medium for its first release (text patterns, new to `scan`), so the Action's default fail-on: high
+# doesn't start failing existing repositories; it can move to high once it has had a release of feedback.
 CAPS_PY = {
-    "shell": ("high", re.compile(
+    "shell": ("medium", re.compile(
         r"\bsubprocess\.(?:run|call|check_call|check_output|Popen|getoutput)\b|\bos\.(?:system|popen|exec\w*|spawn\w*)\s*\(|"
         r"\bpty\.spawn\b|\b(?:ShellTool|PythonREPLTool|PythonAstREPLTool|BashProcess|CodeInterpreterTool|LocalShellTool|"
         r"ComputerTool)\b|\bstrands_tools\b[^\n]*\b(?:shell|python_repl|use_computer)\b")),
@@ -251,7 +253,7 @@ CAPS_PY = {
         r"ScrapeWebsiteTool|SerperDevTool)\b|\bstrands_tools\b[^\n]*\bhttp_request\b")),
 }
 CAPS_TS = {
-    "shell": ("high", re.compile(r"""\bchild_process\b|\b(?:execSync|execFileSync|spawnSync)\s*\(|\bBun\.(?:spawn|\$)|\bexeca\b""")),
+    "shell": ("medium", re.compile(r"""\bchild_process\b|\b(?:execSync|execFileSync|spawnSync)\s*\(|\bBun\.(?:spawn|\$)|\bexeca\b""")),
     "file write": ("medium", re.compile(r"\b(?:writeFile|writeFileSync|appendFile|appendFileSync|rmSync|unlinkSync|renameSync)\s*\(|"
                                         r"\bfs(?:\.promises)?\.(?:rm|unlink|rename)\s*\(")),
     "network": ("medium", re.compile(r"\bfetch\s*\(|\baxios\b|\bgot\s*\(|\bhttps?\.request\s*\(")),

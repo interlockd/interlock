@@ -162,12 +162,12 @@ def test_agent_code(tmp_path):
     _w(tmp_path, "scripts/build.py", NOT_AN_AGENT)
     got = {(Path(f.source).relative_to(tmp_path).as_posix(), f.rule, f.severity) for f in check_agent_code(tmp_path)}
     assert got == {
-        ("agents/ops.py", "code.ungated_shell_tool", "high"),
-        ("agents/strands_agent.py", "code.ungated_shell_tool", "high"),
+        ("agents/ops.py", "code.ungated_shell_tool", "medium"),
+        ("agents/strands_agent.py", "code.ungated_shell_tool", "medium"),
         ("agents/strands_agent.py", "code.ungated_network_tool", "medium"),
         ("agents/crew.py", "code.ungated_file_write_tool", "medium"),
         ("agents/crew.py", "prompt.untrusted_interpolation", "medium"),
-        ("web/agent.ts", "code.ungated_shell_tool", "high"),
+        ("web/agent.ts", "code.ungated_shell_tool", "medium"),
         ("web/agent.ts", "prompt.untrusted_interpolation", "medium"),
         ("agents/prompts.py", "prompt.untrusted_interpolation", "medium"),
         ("agents/prompts.py", "prompt.disables_safety", "medium"),
@@ -196,7 +196,7 @@ def test_findings_reach_sarif_and_fail_on(tmp_path, monkeypatch):
     r = run_scan(home, tmp_path / "ih", proj.resolve())
     sarif = to_sarif(r, proj.resolve())
     res = {x["ruleId"]: x for x in sarif["runs"][0]["results"]}
-    assert res["code.ungated_shell_tool"]["level"] == "error"
+    assert res["code.ungated_shell_tool"]["level"] == "warning"
     loc = res["code.ungated_shell_tool"]["locations"][0]["physicalLocation"]
     assert loc["artifactLocation"]["uri"] == "agents/ops.py" and loc["region"]["startLine"] >= 1
     assert res["prompt.disables_safety"]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] == ".claude/commands/ship.md"
@@ -204,8 +204,10 @@ def test_findings_reach_sarif_and_fail_on(tmp_path, monkeypatch):
     monkeypatch.setattr(cli.Path, "home", staticmethod(lambda: home))
     monkeypatch.setenv("INTERLOCK_HOME", str(tmp_path / "ih"))
     out = tmp_path / "out.sarif"
-    assert cli.main(["scan", "--project", str(proj), "--fail-on", "high", "--sarif", str(out)]) == 1
+    # an ungated shell tool is medium in its first release: it fails --fail-on medium, not the default high
+    assert cli.main(["scan", "--project", str(proj), "--fail-on", "medium", "--sarif", str(out)]) == 1
     assert json.loads(out.read_text(encoding="utf-8"))["runs"][0]["results"]
+    assert cli.main(["scan", "--project", str(proj), "--fail-on", "high"]) == 0
     (proj / "agents" / "ops.py").unlink()
     assert cli.main(["scan", "--project", str(proj), "--fail-on", "high"]) == 0     # medium only
     assert cli.main(["scan", "--project", str(proj), "--fail-on", "medium"]) == 1
