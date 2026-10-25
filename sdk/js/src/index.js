@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export const VERSION = "0.1.5";
+export const VERSION = "0.1.6";
 export const UNREACHABLE =
   "[interlock] This action was NOT executed: the Interlock daemon is unreachable and this machine fails closed.";
 
