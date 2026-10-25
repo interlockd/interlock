@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Fix:** `persistence.agent_config_write` no longer refuses every file of a Claude Code agent worktree (`<repo>/.claude/worktrees/<name>/...`) because its path contains `/.claude/`. A worktree is treated as a checkout of its own: its source files are workspace files, while its own `.claude/`, `.kiro/`, `.codex/`, `.interlock/`, the parent `.claude/` (settings, hooks, commands, agents) and the user's `~/.claude/` stay protected, after normalizing `..`, without case, and following symlinks. Adding `.claude/worktrees/**` to `trust.protected_paths` restores the old behaviour.
+- **Fix:** writes to agent configuration through the shell that were missed are now caught by the same rule: `>|`, `tee` with flags or several files, `dd of=`, `truncate`, `perl -i` / `ruby -i`, `awk -i inplace`, a local `rsync` destination, and interpreter one-liners and heredocs (`python3 -c "open('.claude/settings.json','w')..."`, `node -e "fs.writeFileSync(...)"`, Ruby, Perl, PHP) that write a literal path. Reads and mere mentions of the path are not flagged.
 - Tests: the tier-0 latency test gates on the best median of five batches after a longer warm-up (a stall on a shared CI runner no longer fails it; a real slowdown still does), with a 30 ms p50 budget on Windows and 20 ms elsewhere.
 - Tests: the gateway tests no longer depend on the caller's environment (they failed when `INTERLOCK_HOME` was set).
 
