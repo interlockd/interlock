@@ -1,4 +1,5 @@
-"""Run the daemon as a background service: launchd (macOS), systemd --user (Linux), or a detached process.
+"""Run the daemon as a background service: launchd (macOS), systemd --user (Linux), the per-user Run key (Windows), or a
+detached process.
 
 One `ServiceManager` per Interlock home. The service runs `<python> -m interlockd serve` with INTERLOCK_HOME set,
 logs to `<home>/interlockd.log`, and restarts on crash under launchd/systemd. The detached-process backend is the
@@ -20,9 +21,9 @@ import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
-Backend = Literal["launchd", "systemd", "process"]
+Backend = Literal["launchd", "systemd", "winrun", "process"]
 WINDOWS = sys.platform == "win32"
 DEFAULT_HOME = Path("~/.interlock").expanduser()
 
@@ -31,7 +32,40 @@ def _run(cmd: list[str]) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, text=True, check=False)
 
 
+RUN_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"     # HKCU: per-user, no admin rights needed
+
+
+class WinRunKey:
+    """The current user's Run key: programs Windows starts at sign-in. Tests substitute a dict-backed fake."""
+
+    def get(self, name: str) -> str | None:
+        import winreg
+
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
+                return str(winreg.QueryValueEx(k, name)[0])
+        except OSError:
+            return None
+
+    def set(self, name: str, value: str) -> None:
+        import winreg
+
+        with winreg.CreateKey(winreg.HKEY_CURRENT_USER, RUN_KEY) as k:
+            winreg.SetValueEx(k, name, 0, winreg.REG_SZ, value)
+
+    def delete(self, name: str) -> None:
+        import winreg
+
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, RUN_KEY, 0, winreg.KEY_SET_VALUE) as k:
+                winreg.DeleteValue(k, name)
+        except OSError:
+            pass
+
+
 def detect_backend() -> Backend:
+    if WINDOWS:
+        return "winrun"
     if platform.system() == "Darwin" and shutil.which("launchctl"):
         return "launchd"
     if platform.system() == "Linux" and shutil.which("systemctl"):
@@ -52,7 +86,8 @@ class ServiceStatus:
 
 class ServiceManager:
     def __init__(self, home: Path, *, listen: str = "127.0.0.1:7391", backend: Backend | None = None,
-                 python: str | None = None, runner: Callable[[list[str]], subprocess.CompletedProcess] = _run):
+                 python: str | None = None, runner: Callable[[list[str]], subprocess.CompletedProcess] = _run,
+                 run_key: Any | None = None):
         self.home = Path(home).expanduser()
         self.listen = listen
         self.backend: Backend = backend or detect_backend()
@@ -63,6 +98,7 @@ class ServiceManager:
             str(self.home.resolve()).encode()).hexdigest()[:8]
         self.label = f"dev.interlock.daemon{suffix}"
         self.unit = f"interlockd{suffix}.service"
+        self.run_key = run_key if run_key is not None else (WinRunKey() if self.backend == "winrun" else None)
 
     # ---- paths
     @property
@@ -83,6 +119,13 @@ class ServiceManager:
 
     def command(self) -> list[str]:
         return [self.python, "-m", "interlockd", "--home", str(self.home), "serve", "--listen", self.listen]
+
+    def logon_command(self) -> str:
+        """What the Run key starts at sign-in: `interlock start` with the process backend, under pythonw (no console
+        window), which detaches the daemon with its log."""
+        pyw = Path(self.python).with_name("pythonw.exe")
+        exe = str(pyw) if pyw.exists() else self.python
+        return subprocess.list2cmdline([exe, "-m", "interlockd", "--home", str(self.home), "start", "--backend", "process"])
 
     # ---- unit files
     def _plist(self) -> str:
@@ -127,9 +170,11 @@ WantedBy=default.target
 
     # ---- lifecycle
     def install(self) -> Path:
-        """Write the unit (launchd/systemd). The process backend has nothing to install."""
+        """Write the unit (launchd/systemd) or the Run-key entry (winrun). The process backend has nothing to install."""
         self.home.mkdir(parents=True, exist_ok=True)
-        if self.backend == "launchd":
+        if self.backend == "winrun":
+            self.run_key.set(self.label, self.logon_command())
+        elif self.backend == "launchd":
             self.unit_path.parent.mkdir(parents=True, exist_ok=True)
             self.unit_path.write_text(self._plist(), encoding="utf-8")
         elif self.backend == "systemd":
@@ -156,6 +201,8 @@ WantedBy=default.target
                 self.install()
             self._run(["systemctl", "--user", "start", self.unit])
         else:
+            if self.backend == "winrun" and self.run_key.get(self.label) is None:
+                self.install()                           # started at sign-in from now on; run it now as well
             if self._pid_alive():
                 return
             self.home.mkdir(parents=True, exist_ok=True)
@@ -207,6 +254,8 @@ WantedBy=default.target
 
     def uninstall(self) -> None:
         self.stop()
+        if self.backend == "winrun":
+            self.run_key.delete(self.label)
         if self.backend == "systemd":
             self._run(["systemctl", "--user", "disable", self.unit])
         if self.backend in ("launchd", "systemd") and self.unit_path.exists():
@@ -215,8 +264,11 @@ WantedBy=default.target
                 self._run(["systemctl", "--user", "daemon-reload"])
 
     def status(self) -> ServiceStatus:
-        installed = self.unit_path.exists() if self.backend != "process" else True
-        return ServiceStatus(self.backend, installed, self.healthy(), self._read_pid(), detail=str(self.unit_path))
+        if self.backend == "winrun":
+            installed, detail = self.run_key.get(self.label) is not None, f"HKCU\\{RUN_KEY}\\{self.label}"
+        else:
+            installed, detail = (self.unit_path.exists() if self.backend != "process" else True), str(self.unit_path)
+        return ServiceStatus(self.backend, installed, self.healthy(), self._read_pid(), detail=detail)
 
     # ---- health
     def healthy(self, timeout: float = 1.0) -> bool:

@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import urllib.request
 from pathlib import Path
 
@@ -120,7 +121,8 @@ def test_install_and_uninstall(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", "/usr/bin:/bin"); monkeypatch.chdir(tmp_path)
     assert main(["init", "--yes", "--no-service", "--harness", "copilot-cli,windsurf,antigravity"]) == 0
     cp = json.loads((home / ".copilot" / "hooks" / "interlock.json").read_text(encoding="utf-8"))
-    assert cp["version"] == 1 and cp["hooks"]["preToolUse"][0]["bash"].endswith(" pre") and cp["hooks"]["postToolUse"][0]["bash"].endswith(" post")
+    key = "powershell" if sys.platform == "win32" else "bash"           # Copilot names the shell per platform
+    assert cp["version"] == 1 and cp["hooks"]["preToolUse"][0][key].endswith(" pre") and cp["hooks"]["postToolUse"][0][key].endswith(" post")
     ws = json.loads((home / ".codeium" / "windsurf" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
     assert ws["pre_run_command"][0] == {"command": "mine"} and len(ws["pre_run_command"]) == 2 and "pre_mcp_tool_use" in ws
     ag = json.loads((home / ".gemini" / "config" / "hooks.json").read_text(encoding="utf-8"))

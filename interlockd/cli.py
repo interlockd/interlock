@@ -24,8 +24,10 @@ from .policy import load_policy
 from .store.spool import Spool
 
 SHIMS_ROOT = Path(__file__).resolve().parent / "shims"   # shipped as package data; docs live in the repo's adapters/
-HOOK_SHIMS = {"sh": SHIMS_ROOT / "kiro" / "interlock-hook.sh", "node": SHIMS_ROOT / "kiro" / "interlock-hook.mjs"}
+HOOK_SHIMS = {"sh": SHIMS_ROOT / "kiro" / "interlock-hook.sh", "node": SHIMS_ROOT / "kiro" / "interlock-hook.mjs",
+              "py": SHIMS_ROOT / "py" / "interlock-hook.py"}
 CLAUDE_SHIM_SRC = SHIMS_ROOT / "claude-code" / "interlock-hook.sh"
+PY_SHIM_SRC = SHIMS_ROOT / "py" / "interlock-hook.py"     # the same contract without sh + curl (native Windows)
 CLAUDE_PRE_MATCHER = "Bash|Edit|Write|MultiEdit|NotebookEdit|WebFetch|Task|mcp__.*"
 CLAUDE_POST_MATCHER = "Bash|Read|WebFetch|mcp__.*"
 CODEX_PRE_MATCHER = "Bash|apply_patch|Edit|Write|mcp__.*"
@@ -212,18 +214,46 @@ def _find_kiro_root(start: Path) -> Path | None:
     return None
 
 
+def hook_runtime() -> str:
+    """"sh" (POSIX sh + curl, fastest) or "py" (the Python shim) for the hooks `init` installs: py on Windows, or
+    when INTERLOCK_HOOK_RUNTIME=py."""
+    want = os.environ.get("INTERLOCK_HOOK_RUNTIME")
+    if want in ("sh", "py"):
+        return want
+    return "py" if sys.platform == "win32" else "sh"
+
+
+def _hook_python() -> str:
+    """The interpreter hooks run the Python shim with. It needs only the standard library, so the base interpreter
+    (not a venv's launcher, which costs a second process on Windows) is enough."""
+    return getattr(sys, "_base_executable", None) or sys.executable
+
+
+def hook_command(shim: Path, arg: str = "") -> str:
+    """The command line an agent config runs for `shim` (plus "pre"/"post" where the payload doesn't say)."""
+    tail = f" {arg}" if arg else ""
+    if shim.suffix == ".py":
+        return f'"{_hook_python()}" -I -S "{shim}"{tail}'
+    if shim.suffix == ".mjs":
+        return f"{shutil.which('node') or 'node'} {shim}{tail}"
+    return f"sh {shim}{tail}"
+
+
 def _install_shared_shim(s: Settings, harness: str) -> Path:
-    """Copy the Claude-compatible shim with HARNESS baked in; returns the installed path."""
+    """Copy the Claude-compatible shim (sh, or the Python one, see hook_runtime) with HARNESS baked in; returns its
+    installed path."""
     shim_dir = s.home / "adapters" / harness
     shim_dir.mkdir(parents=True, exist_ok=True)
-    shim = shim_dir / "interlock-hook.sh"
-    shim.write_text(CLAUDE_SHIM_SRC.read_text(encoding="utf-8").replace("__HARNESS__", harness), encoding="utf-8")
+    py = hook_runtime() == "py"
+    shim = shim_dir / ("interlock-hook.py" if py else "interlock-hook.sh")
+    src = PY_SHIM_SRC if py else CLAUDE_SHIM_SRC
+    shim.write_text(src.read_text(encoding="utf-8").replace("__HARNESS__", harness), encoding="utf-8")
     shim.chmod(0o755)
     return shim
 
 
 def _hook_groups(shim: Path, pre_matcher: str, post_matcher: str, *, status: bool = False) -> dict:
-    handler = {"type": "command", "command": f"sh {shim}", "timeout": 5}
+    handler = {"type": "command", "command": hook_command(shim), "timeout": 5}
     if status:
         handler["statusMessage"] = "Interlock"
     return {
@@ -234,9 +264,11 @@ def _hook_groups(shim: Path, pre_matcher: str, post_matcher: str, *, status: boo
 
 def _merge_hook_groups(existing: dict, ours: dict, marker: str) -> dict:
     """Replace any previous Interlock groups (identified by the shim path marker) and append ours."""
+    from .onboard import mentions
+
     hooks = dict(existing.get("hooks") or {})
     for event, groups in ours.items():
-        kept = [g for g in (hooks.get(event) or []) if marker not in json.dumps(g)]
+        kept = [g for g in (hooks.get(event) or []) if not mentions(json.dumps(g), marker)]
         hooks[event] = kept + groups
     return {**existing, "hooks": hooks}
 
@@ -260,23 +292,22 @@ def _write_codex_hooks(s: Settings, target: Path) -> Path:
     return shim
 
 
-def _write_kiro_hooks(s: Settings, root: Path, runtime: str = "sh", custom_shim: str | None = None) -> tuple[Path, Path]:
+def _write_kiro_hooks(s: Settings, root: Path, runtime: str | None = None, custom_shim: str | None = None) -> tuple[Path, Path]:
     shim_dir = s.home / "adapters" / "kiro"
     shim_dir.mkdir(parents=True, exist_ok=True)
-    src = Path(custom_shim).resolve() if custom_shim else HOOK_SHIMS[runtime]
+    src = Path(custom_shim).resolve() if custom_shim else HOOK_SHIMS[runtime or hook_runtime()]
     shim = shim_dir / src.name
-    shutil.copyfile(src, shim)
+    shim.write_text(src.read_text(encoding="utf-8").replace("__HARNESS__", "kiro"), encoding="utf-8")
     shim.chmod(0o755)
-    runner = (shutil.which("node") or "node") if shim.suffix == ".mjs" else "sh"
     hook = {
         "version": "v1",
         "hooks": [
             {"name": "interlock-pre", "description": "Interlock pre-action gate",
              "trigger": "PreToolUse", "matcher": ".*",
-             "action": {"type": "command", "command": f"{runner} {shim}"}, "timeout": 3},
+             "action": {"type": "command", "command": hook_command(shim)}, "timeout": 3},
             {"name": "interlock-post", "description": "Interlock post-action probe (record-only on Kiro)",
              "trigger": "PostToolUse", "matcher": ".*",
-             "action": {"type": "command", "command": f"{runner} {shim}"}, "timeout": 3},
+             "action": {"type": "command", "command": hook_command(shim)}, "timeout": 3},
         ],
     }
     hooks_dir = root / ".kiro" / "hooks"
@@ -291,7 +322,7 @@ def _write_cursor_hooks(s: Settings, target: Path) -> Path:
     shim = _install_shared_shim(s, "cursor")
     target.parent.mkdir(parents=True, exist_ok=True)
     existing = json.loads(target.read_text(encoding="utf-8")) if target.exists() and target.read_text(encoding="utf-8").strip() else {}
-    entry = {"command": f"sh {shim}", "type": "command", "timeout": 5, "matcher": "*"}
+    entry = {"command": hook_command(shim), "type": "command", "timeout": 5, "matcher": "*"}
     merged = _merge_hook_groups(existing, {"preToolUse": [dict(entry)], "postToolUse": [dict(entry)]}, str(shim))
     merged.setdefault("version", 1)
     target.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
@@ -303,12 +334,19 @@ def _write_gemini_hooks(s: Settings, target: Path) -> Path:
     shim = _install_shared_shim(s, "gemini-cli")
     target.parent.mkdir(parents=True, exist_ok=True)
     existing = json.loads(target.read_text(encoding="utf-8")) if target.exists() and target.read_text(encoding="utf-8").strip() else {}
-    handler = {"name": "interlock", "type": "command", "command": f"sh {shim}", "timeout": 5000,
+    handler = {"name": "interlock", "type": "command", "command": hook_command(shim), "timeout": 5000,
                "description": "Interlock pre/post-action gate"}
     merged = _merge_hook_groups(existing, {"BeforeTool": [{"matcher": ".*", "hooks": [dict(handler)]}],
                                            "AfterTool": [{"matcher": ".*", "hooks": [dict(handler)]}]}, str(shim))
     target.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
     return shim
+
+
+def _copilot_cmd(shim: Path, arg: str) -> dict:
+    """Copilot CLI hook entries name the shell that runs them: "powershell" on Windows, "bash" elsewhere."""
+    if sys.platform == "win32":
+        return {"powershell": "& " + hook_command(shim, arg)}
+    return {"bash": hook_command(shim, arg)}
 
 
 def _write_copilot_hooks(s: Settings, target: Path) -> Path:
@@ -317,8 +355,8 @@ def _write_copilot_hooks(s: Settings, target: Path) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     existing = json.loads(target.read_text(encoding="utf-8")) if target.exists() and target.read_text(encoding="utf-8").strip() else {}
     merged = _merge_hook_groups(existing, {
-        "preToolUse": [{"type": "command", "bash": f"sh {shim} pre", "timeoutSec": 5}],
-        "postToolUse": [{"type": "command", "bash": f"sh {shim} post", "timeoutSec": 5}]}, str(shim))
+        "preToolUse": [{"type": "command", **_copilot_cmd(shim, "pre"), "timeoutSec": 5}],
+        "postToolUse": [{"type": "command", **_copilot_cmd(shim, "post"), "timeoutSec": 5}]}, str(shim))
     merged.setdefault("version", 1)
     target.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
     return shim
@@ -329,7 +367,7 @@ def _write_windsurf_hooks(s: Settings, target: Path) -> Path:
     shim = _install_shared_shim(s, "windsurf")
     target.parent.mkdir(parents=True, exist_ok=True)
     existing = json.loads(target.read_text(encoding="utf-8")) if target.exists() and target.read_text(encoding="utf-8").strip() else {}
-    entry = {"command": f"sh {shim} pre", "show_output": True}
+    entry = {"command": hook_command(shim, "pre"), "show_output": True}
     merged = _merge_hook_groups(existing, {e: [dict(entry)] for e in
                                            ("pre_run_command", "pre_mcp_tool_use", "pre_read_code", "pre_write_code")}, str(shim))
     target.write_text(json.dumps(merged, indent=2) + "\n", encoding="utf-8")
@@ -342,8 +380,8 @@ def _write_antigravity_hooks(s: Settings, target: Path) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     data = json.loads(target.read_text(encoding="utf-8")) if target.exists() and target.read_text(encoding="utf-8").strip() else {}
     data["interlock"] = {"enabled": True,
-                         "PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": f"sh {shim} pre", "timeout": 10}]}],
-                         "PostToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": f"sh {shim} post", "timeout": 10}]}]}
+                         "PreToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": hook_command(shim, "pre"), "timeout": 10}]}],
+                         "PostToolUse": [{"matcher": "*", "hooks": [{"type": "command", "command": hook_command(shim, "post"), "timeout": 10}]}]}
     target.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
     return shim
 
@@ -1311,7 +1349,7 @@ def cmd_init(args) -> int:
 
 
 def cmd_uninstall(args) -> int:
-    from .onboard import Manifest, confirm, remove_hook_groups
+    from .onboard import Manifest, confirm, mentions, remove_hook_groups
 
     s = _settings(args)
     man = Manifest.load(s.home)
@@ -1327,7 +1365,7 @@ def cmd_uninstall(args) -> int:
     for h in hooks:
         f = Path(h["file"])
         if h["harness"] in ("kiro", "opencode"):
-            if f.exists() and (h["marker"] in f.read_text(encoding="utf-8") or h["harness"] == "opencode"):
+            if f.exists() and (mentions(f.read_text(encoding="utf-8"), h["marker"]) or h["harness"] == "opencode"):
                 f.unlink()
                 print(f"removed     {f}")
         elif h["harness"] == "antigravity":
@@ -1897,14 +1935,12 @@ def cmd_bench(args) -> int:
     return 0
 
 
-# Native Windows runs the daemon, policy, audit, scan and the SDKs. Agent hooks (POSIX shell shims), the OS sandbox and
-# the local judge are macOS/Linux only for now; on Windows they run inside WSL2.
-WINDOWS_UNSUPPORTED = {"init", "install", "gateway", "sandbox", "selftest", "capture", "judge"}
+# Native Windows runs everything except the OS sandbox and the local judge (macOS/Linux; on Windows, inside WSL2).
+# Agent hooks there use the Python shim (shims/py), installed by `init` as any other.
+WINDOWS_UNSUPPORTED = {"sandbox", "judge"}
 WINDOWS_MESSAGE = (
-    "`interlock {cmd}` isn't available on native Windows yet: agent hooks, the sandbox and the local judge need macOS\n"
-    "or Linux. On Windows, install Interlock inside WSL2 (Ubuntu) and run your agents from the WSL terminal:\n"
-    "`pipx install interlockd && interlock init`. Natively, `interlock start` runs the daemon for the Python and\n"
-    "JavaScript SDKs.")
+    "`interlock {cmd}` isn't available on native Windows: the OS sandbox and the local judge need macOS or Linux.\n"
+    "On Windows, use them inside WSL2 (Ubuntu), with your agents run from the WSL terminal.")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1924,14 +1960,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--no-service", action="store_true", help="don't install a background service")
     p.add_argument("--mcp", action="store_true", help="also register the Interlock MCP server (advisory tools) with each agent")
     p.add_argument("--gateway", action="store_true", help="also route your stdio MCP servers through the Interlock MCP gateway")
-    p.add_argument("--backend", choices=["launchd", "systemd", "process"], help="service backend (default: detected)")
+    p.add_argument("--backend", choices=["launchd", "systemd", "winrun", "process"], help="service backend (default: detected)")
     p.set_defaults(fn=cmd_init)
     p = sub.add_parser("uninstall", help="remove Interlock's hooks and background service")
     p.add_argument("-y", "--yes", action="store_true"); p.add_argument("--purge", action="store_true", help="also delete the Interlock home")
     p.set_defaults(fn=cmd_uninstall)
     for name, help_ in (("start", "start the background daemon"), ("stop", "stop the background daemon"),
                         ("restart", "restart the background daemon"), ("status", "daemon, service, mode, and hooks")):
-        p = sub.add_parser(name, help=help_); p.add_argument("--backend", choices=["launchd", "systemd", "process"])
+        p = sub.add_parser(name, help=help_); p.add_argument("--backend", choices=["launchd", "systemd", "winrun", "process"])
         p.set_defaults(fn=cmd_service)
     for name, help_ in (("enforce", "switch to enforce mode (block closed categories, ask on the rest)"),
                         ("shadow", "switch to shadow mode (record decisions, never block)")):
@@ -2048,7 +2084,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--project", help="project root for Claude Code / Codex hooks (default: cwd)")
     p.add_argument("--user", action="store_true", help="install Claude Code / Codex hooks at the user level instead")
     p.add_argument("--workspace-root"); p.add_argument("--shim", help="path to a custom shim")
-    p.add_argument("--runtime", choices=["sh", "node"], default="sh", help="shim runtime (sh is ~70 ms faster per call)")
+    p.add_argument("--runtime", choices=["sh", "node", "py"], default=None,
+                   help="shim runtime (default: sh on macOS/Linux, ~70 ms faster per call than node; py on Windows)")
     p.set_defaults(fn=cmd_install)
 
     p = sub.add_parser("test", help="run the deterministic corpus and report FPR/FNR (CI gate)")

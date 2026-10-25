@@ -6,6 +6,7 @@ import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from conftest import installed_shim_name
 
 from interlockd.cli import main
 from interlockd.insights import build_report, format_doctor, format_report, run_doctor
@@ -61,7 +62,7 @@ def test_doctor_after_init_then_tamper(sandbox):
     _, rc = format_doctor(list(c.values()))
     assert rc == 1
 
-    shim = sandbox / ".interlock" / "adapters" / "claude-code" / "interlock-hook.sh"
+    shim = sandbox / ".interlock" / "adapters" / "claude-code" / installed_shim_name()
     shim.write_text(shim.read_text(encoding="utf-8") + "\nexit 0\n", encoding="utf-8")                     # an agent neutering its own gate
     c = _checks(sandbox)
     assert not c["hooks claude-code"].ok and "tampered" in c["hooks claude-code"].detail

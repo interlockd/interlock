@@ -175,3 +175,13 @@ def test_token_rotate(sandbox):
     after = (il / "token").read_text(encoding="utf-8")
     assert after != before and len(after.strip()) > 30 and (il / "token").stat().st_mode & 0o777 == 0o600
     assert not (il / "token.new").exists()
+
+
+def test_remove_hook_groups_finds_windows_paths(tmp_path):
+    """On Windows the shim path is JSON-escaped in agent configs (each backslash doubled)."""
+    marker = r"C:\Users\me\.interlock\adapters\cursor\interlock-hook.py"
+    f = tmp_path / "hooks.json"
+    cmd = f'"C:\\Python312\\python.exe" -I -S "{marker}"'
+    f.write_text(json.dumps({"version": 1, "hooks": {"preToolUse": [{"command": cmd}, {"command": "mine"}]}}), encoding="utf-8")
+    assert remove_hook_groups(f, marker)
+    assert json.loads(f.read_text(encoding="utf-8"))["hooks"] == {"preToolUse": [{"command": "mine"}]}

@@ -56,6 +56,10 @@ jobs:
         run: .venv/Scripts/python.exe -m pytest -q -p no:cacheprovider
       - name: Rule corpus gate
         run: .venv/Scripts/interlock.exe test
+      - name: Agent hooks on Windows (init, every installed hook through cmd.exe / PowerShell, uninstall)
+        run: |
+          export USERPROFILE="$(cygpath -w "$RUNNER_TEMP/e2e-home")" HOME="$RUNNER_TEMP/e2e-home"
+          mkdir -p "$HOME" && .venv/Scripts/python.exe scripts/e2e-hooks.py --service
       - name: Live daemon on Windows (start, decide, audit, stop)
         run: |
           export INTERLOCK_HOME="$RUNNER_TEMP/ih" IL=.venv/Scripts/interlock.exe

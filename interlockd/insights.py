@@ -174,13 +174,17 @@ def _health(listen: str) -> dict[str, Any] | None:
         return None
 
 
-def expected_shim(harness: str) -> str | None:
-    from .cli import CLAUDE_SHIM_SRC, HOOK_SHIMS
+def expected_shim(harness: str, shim: Path | None = None) -> str | None:
+    """This version's shim for `harness`, in the runtime of the installed `shim` (its suffix: .sh, .py, .mjs)."""
+    from .cli import CLAUDE_SHIM_SRC, HOOK_SHIMS, PY_SHIM_SRC
 
+    suffix = shim.suffix if shim is not None else ".sh"
+    if suffix == ".py" and harness != "opencode":
+        return PY_SHIM_SRC.read_text(encoding="utf-8").replace("__HARNESS__", harness)
     if harness in ("claude-code", "codex", "cursor", "gemini-cli", "copilot-cli", "windsurf", "antigravity"):
         return CLAUDE_SHIM_SRC.read_text(encoding="utf-8").replace("__HARNESS__", harness)
     if harness == "kiro":
-        return HOOK_SHIMS["sh"].read_text(encoding="utf-8")
+        return HOOK_SHIMS["node" if suffix == ".mjs" else "sh"].read_text(encoding="utf-8")
     if harness == "opencode":
         from . import __version__
         from .cli import OPENCODE_PLUGIN_SRC
@@ -192,7 +196,7 @@ def expected_shim(harness: str) -> str | None:
 def hook_integrity(home: Path) -> list[dict[str, str]]:
     """For each hook `interlock init` installed: {harness, file, problem, detail}, where problem is "" (intact),
     "hook_removed" (the agent's hook file no longer runs Interlock), "shim_missing", or "shim_modified"."""
-    from .onboard import Manifest
+    from .onboard import Manifest, mentions
 
     man = Manifest.load(home)
     out = []
@@ -203,7 +207,7 @@ def hook_integrity(home: Path) -> list[dict[str, str]]:
             text = f.read_text(encoding="utf-8", errors="replace") if f.exists() else ""
         except OSError:
             text = ""
-        if hk["marker"] not in text:
+        if not mentions(text, hk["marker"]):
             row.update(problem="hook_removed", detail=f"Interlock hook missing from {f} (removed or edited)")
         elif state := shim_state(shim, hk["harness"]):
             row.update(problem=state, detail=SHIM_DETAIL[state].format(shim=shim))
@@ -220,7 +224,7 @@ def shim_state(shim: Path, harness: str) -> str:
     shim_modified."""
     if not shim.exists():
         return "shim_missing"
-    want = expected_shim(harness)
+    want = expected_shim(harness, shim)
     have = shim.read_text(encoding="utf-8", errors="replace")
     if want is None or have == want:
         return ""
@@ -239,7 +243,7 @@ def refresh_outdated_shims(home: Path) -> list[str]:
 
             man = Manifest.load(home)
             for hk in (man.hooks if man else []):
-                if hk["harness"] == h["harness"] and (want := expected_shim(h["harness"])) is not None:
+                if hk["harness"] == h["harness"] and (want := expected_shim(h["harness"], Path(hk["marker"]))) is not None:
                     Path(hk["marker"]).write_text(want, encoding="utf-8")
                     done.append(hk["marker"])
     return done

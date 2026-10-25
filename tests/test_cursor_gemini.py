@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
+from conftest import installed_shim_name
 
 from interlockd.api import ApiServer
 from interlockd.cli import main
@@ -132,10 +134,10 @@ def test_init_installs_and_uninstall_removes(tmp_path, monkeypatch):
     monkeypatch.setenv("PATH", "/usr/bin:/bin"); monkeypatch.chdir(tmp_path)
     assert main(["init", "--yes", "--no-service", "--harness", "cursor,gemini-cli"]) == 0
     cur = json.loads((home / ".cursor" / "hooks.json").read_text(encoding="utf-8"))
-    assert cur["version"] == 1 and "interlock-hook.sh" in cur["hooks"]["preToolUse"][0]["command"]
+    assert cur["version"] == 1 and installed_shim_name() in cur["hooks"]["preToolUse"][0]["command"]
     gem = json.loads((home / ".gemini" / "settings.json").read_text(encoding="utf-8"))
     assert gem["theme"] == "dark" and len(gem["hooks"]["BeforeTool"]) == 2 and "AfterTool" in gem["hooks"]
-    assert 'HARNESS="cursor"' in (home / ".interlock" / "adapters" / "cursor" / "interlock-hook.sh").read_text(encoding="utf-8")
+    assert re.search(r'HARNESS ?= ?"cursor"', (home / ".interlock" / "adapters" / "cursor" / installed_shim_name()).read_text(encoding="utf-8"))
     assert main(["uninstall", "--yes"]) == 0
     gem = json.loads((home / ".gemini" / "settings.json").read_text(encoding="utf-8"))
     assert gem == {"theme": "dark", "hooks": {"BeforeTool": [{"matcher": "x", "hooks": [{"command": "mine"}]}]}}

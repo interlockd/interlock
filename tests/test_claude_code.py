@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import urllib.request
 from pathlib import Path
 
 import pytest
+from conftest import installed_shim_name
 
 from interlockd.api import ApiServer
 from interlockd.cli import main as cli_main
@@ -157,8 +159,8 @@ def test_installers_merge_existing_settings(tmp_path, monkeypatch):
     assert s["permissions"] == {"allow": ["Read"]}                                   # untouched
     assert len(s["hooks"]["PreToolUse"]) == 2 and s["hooks"]["PreToolUse"][0]["hooks"][0]["command"] == "echo other"
     ours = s["hooks"]["PreToolUse"][1]
-    assert ours["matcher"].startswith("Bash|Edit") and "adapters/claude-code/interlock-hook.sh" in ours["hooks"][0]["command"]
-    assert (home / "adapters" / "claude-code" / "interlock-hook.sh").read_text(encoding="utf-8").count('HARNESS="claude-code"') == 1
+    assert ours["matcher"].startswith("Bash|Edit") and str(Path("adapters", "claude-code", installed_shim_name())) in ours["hooks"][0]["command"]
+    assert len(re.findall(r'HARNESS ?= ?"claude-code"', (home / "adapters" / "claude-code" / installed_shim_name()).read_text(encoding="utf-8"))) == 1
     # idempotent: reinstall replaces our group instead of appending another
     assert cli_main(["--home", str(home), "install", "--claude-code", "--project", str(proj)]) == 0
     assert len(json.loads((proj / ".claude" / "settings.json").read_text(encoding="utf-8"))["hooks"]["PreToolUse"]) == 2
@@ -166,7 +168,7 @@ def test_installers_merge_existing_settings(tmp_path, monkeypatch):
     assert cli_main(["--home", str(home), "install", "--codex", "--project", str(proj)]) == 0
     c = json.loads((proj / ".codex" / "hooks.json").read_text(encoding="utf-8"))
     assert c["hooks"]["PreToolUse"][0]["hooks"][0]["statusMessage"] == "Interlock" and c["description"]
-    assert 'HARNESS="codex"' in (home / "adapters" / "codex" / "interlock-hook.sh").read_text(encoding="utf-8")
+    assert re.search(r'HARNESS ?= ?"codex"', (home / "adapters" / "codex" / installed_shim_name()).read_text(encoding="utf-8"))
 
 
 def test_withheld_output_matches_the_tool_shape():
