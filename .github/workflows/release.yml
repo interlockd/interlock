@@ -44,7 +44,10 @@ jobs:
           cd /tmp && /tmp/w/bin/interlock --help >/dev/null && /tmp/w/bin/interlock test
       - name: Build provenance (verify with `gh attestation verify <file> --repo interlockd/interlock`)
         uses: actions/attest-build-provenance@v4
-        with: { subject-path: "dist/*" }
+        with:      # the wheel and sdist only: dist/ also holds the .gitignore uv writes, which v4 would attest too
+          subject-path: |
+            dist/*.whl
+            dist/*.tar.gz
       - uses: actions/upload-artifact@v7
         with: { name: dist, path: dist/ }
 
