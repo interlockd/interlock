@@ -285,6 +285,16 @@ flow:
 
 Sessions are the agent's own session id for hook traffic, and the launching agent's process for MCP gateway traffic, so taint never crosses between agents.
 
+### Argument rewrites (`rewrites:`)
+
+Off by default. With
+
+```yaml
+rewrites: [git.force_with_lease]
+```
+
+a `git push --force` (or `-f`) is offered as `git push --force-with-lease` instead: the push still replaces the remote branch, but only if nobody else pushed to it since your last fetch. The call becomes an `ask` whose confirmation shows the rewritten command, so you approve what actually runs. A rewrite applies only to a single simple command (no `&&`, pipes, redirections or substitutions, no `+refspec`), never in place of a block (a force push to a protected branch stays refused), and only on harnesses whose hook reply can change a call's arguments: so far Claude Code (`updatedInput`), written to its documented contract and not yet verified live. Everywhere else the original call keeps its normal decision. Only your own policy (`~/.interlock/policy.yaml`, or a trusted workspace) can turn rewrites on; a repository policy cannot.
+
 ### Rule catalog
 
 Default actions: `block` refuses; `ask` requires confirmation; `model` routes to the judge (decided by it when one is configured, `interlock judge install`; otherwise recorded as unjudged and allowed); `flag` records a finding and allows. Override any of them under `packs.overrides`.

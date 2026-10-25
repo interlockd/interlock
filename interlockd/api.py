@@ -338,7 +338,7 @@ class ApiServer:
                     raw = payload.get("tool_output", payload.get("result_json")) if fmt == "cursor" else payload.get("tool_response")
                     renderer = {"claude-code": render_claude_code, "cursor": render_cursor, "gemini-cli": render_gemini_cli,
                                 "copilot-cli": render_copilot, "antigravity": render_antigravity}[fmt]
-                    extra = {"harness": u.path.rsplit("/", 1)[-1]} if fmt == "claude-code" else {}
+                    extra = {"harness": u.path.rsplit("/", 1)[-1], "tool_input": payload.get("tool_input")} if fmt == "claude-code" else {}
                     out = renderer(verdict, kind=event.kind, tool_response=raw, **extra)
                     data = json.dumps(out, separators=(",", ":")).encode() if out else b""
                     captured(data)

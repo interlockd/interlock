@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Argument rewrites, opt-in (`rewrites: [git.force_with_lease]` in your policy): a simple `git push --force` / `-f` is offered as `git push --force-with-lease` (an `ask` showing the rewritten command) instead of going through unchanged; a protected-branch force push stays blocked. Rendered for Claude Code as `updatedInput` (to the documented contract, not yet verified live); other harnesses keep the original call. A repository policy can't turn rewrites on.
+
 ## 0.1.7 (2026-10-25)
 
 - Plugin API (still version 1, additive): `compose_policies(docs)` returns one policy document that tightens a policy as applying the documents one after another would, for layering policies centrally (a baseline plus group policies) into the one managed policy a machine applies; `tighten_policy(base, data)` and `lint_policy(policy)` expose the tighten-only merge and `policy lint`. A property test checks `compose` against applying the layers in order on random policies. One documented exception: `trust.allowed_git_remotes` is narrowed left to right, never looser than the machine's own list.
