@@ -1,0 +1,70 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Interlock audit store (optional): one DynamoDB table for the daemon's audit records, on-demand, TTL on expires_at,
+  point-in-time recovery, a stream (NEW_IMAGE), three GSIs, encrypted with the AWS-managed DynamoDB key.
+  Deploy: aws cloudformation deploy --stack-name interlock-audit --template-file interlock-audit.yaml
+  then set "dynamodb_table": "interlock-audit" (and aws_region / aws_profile) in ~/.interlock/config.json.
+
+Parameters:
+  TableName:
+    Type: String
+    Default: interlock-audit
+  Environment:
+    Type: String
+    Default: dev
+
+Resources:
+  AuditTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain            # deleting the stack keeps your audit records; delete the table yourself
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Ref TableName
+      BillingMode: PAY_PER_REQUEST
+      DeletionProtectionEnabled: false
+      AttributeDefinitions:
+        - { AttributeName: PK,         AttributeType: S }
+        - { AttributeName: SK,         AttributeType: S }
+        - { AttributeName: session_id, AttributeType: S }
+        - { AttributeName: event_id,   AttributeType: S }
+        - { AttributeName: GSI2PK,     AttributeType: S }
+        - { AttributeName: GSI3PK,     AttributeType: S }
+      KeySchema:
+        - { AttributeName: PK, KeyType: HASH }
+        - { AttributeName: SK, KeyType: RANGE }
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1-session
+          KeySchema:
+            - { AttributeName: session_id, KeyType: HASH }
+            - { AttributeName: event_id,   KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+        - IndexName: GSI2-workspace-time
+          KeySchema:
+            - { AttributeName: GSI2PK,   KeyType: HASH }
+            - { AttributeName: event_id, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+        - IndexName: GSI3-review
+          KeySchema:
+            - { AttributeName: GSI3PK,   KeyType: HASH }
+            - { AttributeName: event_id, KeyType: RANGE }
+          Projection: { ProjectionType: ALL }
+      TimeToLiveSpecification: { AttributeName: expires_at, Enabled: true }
+      PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true }
+      StreamSpecification: { StreamViewType: NEW_IMAGE }
+      SSESpecification: { SSEEnabled: true, SSEType: KMS }   # AWS-managed key alias/aws/dynamodb
+      Tags:
+        - { Key: Project,     Value: interlock }
+        - { Key: Component,   Value: audit-store }
+        - { Key: Environment, Value: !Ref Environment }
+        - { Key: ManagedBy,   Value: cloudformation }
+
+Outputs:
+  TableName:
+    Value: !Ref AuditTable
+    Export: { Name: !Sub "${AWS::StackName}-TableName" }
+  TableArn:
+    Value: !GetAtt AuditTable.Arn
+    Export: { Name: !Sub "${AWS::StackName}-TableArn" }
+  StreamArn:
+    Value: !GetAtt AuditTable.StreamArn
+    Export: { Name: !Sub "${AWS::StackName}-StreamArn" }
