@@ -10,7 +10,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .models import InterlockEvent
-from .paths import is_protected, is_sensitive, is_under, normalize_path
+from .paths import is_protected_scoped, is_sensitive, is_under, normalize_path
 
 HARNESS_TOOLS = {
     "todo_list", "update_session_information", "create_artifact", "user_input", "validate_spec_format",
@@ -74,7 +74,7 @@ def route(event: InterlockEvent, *, workspace_roots: list[str], protected: list[
         paths = _paths_from_args(args, cwd)
         if not paths:
             return TierResult(2, "edit_in_workspace", "write tool without a path argument")
-        if any(is_protected(p, roots, protected) for p in paths):
+        if any(is_protected_scoped(p, roots, protected) for p in paths):
             return TierResult(2, "edit_protected", "write to a protected path", paths)
         if any(is_sensitive(p, sensitive) for p in paths):
             return TierResult(2, "credential_access", "write to a sensitive path", paths)
