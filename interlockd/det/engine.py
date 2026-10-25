@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from ..models import InterlockEvent
-from ..paths import is_protected, is_sensitive, is_under, normalize_path
+from ..paths import is_protected_scoped, is_sensitive, is_under, normalize_path
 from ..policy import Policy
 from ..tiers import (
     DESTRUCTIVE_TOOLS,
@@ -114,7 +114,7 @@ def evaluate(event: InterlockEvent, policy: Policy, tier: TierResult) -> DetResu
             if name in DESTRUCTIVE_TOOLS and roots and not is_under(p, roots):
                 from .packs import R_RM_OUTSIDE
                 res.add(policy, R_RM_OUTSIDE, path=where, subject=p)
-            if name in IN_WORKSPACE_WRITE_TOOLS and is_protected(p, roots, policy.trust.protected_paths) and not res.findings:
+            if name in IN_WORKSPACE_WRITE_TOOLS and is_protected_scoped(p, roots, policy.trust.protected_paths) and not res.findings:
                 from .packs import R_PERSIST_AGENT_CONFIG
                 res.add(policy, R_PERSIST_AGENT_CONFIG, path=where, subject=p)
         content = args.get("content") or args.get("new_str") or args.get("file_text") or args.get("new_string") or ""

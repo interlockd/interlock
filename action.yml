@@ -5,7 +5,7 @@ branding: { icon: shield, color: blue }
 
 inputs:
   scan:
-    description: Run `interlock scan` on the repository's MCP and agent configs (.mcp.json, .cursor/, .vscode/, .kiro/, .gemini/, .claude/)
+    description: Run `interlock scan` on the repository's MCP and agent configs (.mcp.json, .cursor/, .vscode/, .kiro/, .gemini/, .claude/), prompt and instruction files, and agent code
     default: "true"
   fail-on:
     description: Fail the job on scan findings at or above this severity (high | medium | low | never)
@@ -45,7 +45,7 @@ runs:
         if [ -n "${{ inputs.version }}" ]; then pip install --quiet "interlockd==${{ inputs.version }}"
         else pip install --quiet "${{ github.action_path }}"; fi
         interlock --help >/dev/null
-    - name: Scan MCP servers and agent configs
+    - name: Scan MCP servers, agent configs, prompts and agent code
       if: inputs.scan == 'true'
       shell: bash
       run: |

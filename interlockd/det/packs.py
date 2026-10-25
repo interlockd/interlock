@@ -11,11 +11,11 @@ import os
 import re
 from urllib.parse import urlparse
 
+from ..paths import agent_worktree, is_protected_scoped, is_sensitive, is_under, normalize_path
 from ..paths import home as home_dir
-from ..paths import is_protected, is_sensitive, is_under, normalize_path
 from ..policy import Policy
 from . import DetResult, rule
-from .shellparse import Parsed, _words_without_data_args
+from .shellparse import Parsed, _words_without_data_args, interpreter_programs, interpreter_write_targets
 
 # ------------------------------------------------------------------------------------------------- rules
 R_PIPE_TO_SHELL = rule("shell.pipe_to_shell", "security.malicious_command", "critical", "block")
@@ -358,16 +358,21 @@ def _persistence_path_check(path: str, res: DetResult, policy: Policy, roots: li
     if "/.git/hooks/" in p or p.endswith("/.git/config") or "/.git/config" in p:
         res.add(policy, R_PERSIST_GIT_HOOK, path=where, subject=path)
     agent_home_dirs = (f"{home}/.kiro/", f"{home}/.claude/", f"{home}/.codex/", f"{home}/.interlock/", f"{home}/.cursor/", f"{home}/.gemini/")
+    # Inside a Claude Code agent worktree (<repo>/.claude/worktrees/<name>/...) the markers are matched against the path
+    # within the worktree, as in any other checkout: its source files are workspace files, its own .claude/ is config.
+    # (agent_worktree follows symlinks; one that leads out of the worktree gets the strict check below.)
+    wt = agent_worktree(path)
+    scope = "/" + wt[2].lower() if wt is not None else p
     # runtime artifacts (logs, pids, the spool, session transcripts' caches) are not configuration; writing them is normal
-    runtime_artifact = p.endswith((".log", ".pid", ".jsonl", ".drained", ".lock", ".tmp", "nohup.out")) or "/spool/" in p \
-        or "/logs/" in p or "/sessions/" in p or "/session-index/" in p or "/tool-outputs/" in p
+    runtime_artifact = scope.endswith((".log", ".pid", ".jsonl", ".drained", ".lock", ".tmp", "nohup.out")) or "/spool/" in scope \
+        or "/logs/" in scope or "/sessions/" in scope or "/session-index/" in scope or "/tool-outputs/" in scope
     protected_agent = not runtime_artifact and (
-        (is_protected(path, roots, policy.trust.protected_paths) and any(m.lower() in p for m in AGENT_CONFIG_MARKERS))
-        or p.startswith(agent_home_dirs) or "/.kiro/" in p or "/.claude/" in p or "/.codex/" in p or "/.interlock/" in p)
+        (is_protected_scoped(path, roots, policy.trust.protected_paths) and any(m.lower() in scope for m in AGENT_CONFIG_MARKERS))
+        or p.startswith(agent_home_dirs) or "/.kiro/" in scope or "/.claude/" in scope or "/.codex/" in scope or "/.interlock/" in scope)
     if protected_agent:
         res.add(policy, R_PERSIST_AGENT_CONFIG, path=where, subject=path)
-    elif ("/sessions/" in p or "/.claude/projects/" in p) and p.endswith((".jsonl", ".json")) and (
-            "/.kiro/" in p or "/.claude/" in p or "/.codex/" in p):
+    elif ("/sessions/" in scope or "/.claude/projects/" in scope) and scope.endswith((".jsonl", ".json")) and (
+            "/.kiro/" in scope or "/.claude/" in scope or "/.codex/" in scope):
         res.add(policy, R_PERSIST_TRANSCRIPT, path=where, subject=path)
     elif ".github/workflows" in p:
         res.add(policy, R_PERSIST_CI, path=where, subject=path)
@@ -379,12 +384,48 @@ def _persistence_path_check(path: str, res: DetResult, policy: Policy, roots: li
         check_instruction_write(path, None, res, policy, where)
 
 
+# commands beyond cp/mv/sed -i that write a file named on their command line; each returns only the written file(s)
+_WRITE_FLAG_I = re.compile(r"^-[a-z]*i")              # perl -pi / -i.bak, ruby -i (not -Ilib)
+
+
+def _shell_write_targets(cmd: str, w: list[str]) -> list[str]:
+    args = w[1:]
+    if cmd == "tee":
+        return [x for x in args if not x.startswith("-")]
+    if cmd == "dd":
+        return [x[3:] for x in args if x.startswith("of=")]
+    if cmd == "truncate":
+        return [x for i, x in enumerate(args) if not x.startswith("-") and not (i and args[i - 1] in ("-s", "--size", "-r", "--reference"))]
+    if cmd == "rsync":
+        dests = [x for x in args if not x.startswith("-")]
+        return dests[-1:] if len(dests) >= 2 and ":" not in dests[-1] else []
+    if cmd in ("perl", "ruby") and any(_WRITE_FLAG_I.match(x) for x in args):
+        out, skip = [], False
+        for x in args:
+            if skip:
+                skip = False
+            elif x in ("-e", "-E"):
+                skip = True                             # the program, not a file
+            elif not x.startswith("-"):
+                out.append(x)
+        return out
+    if cmd in ("awk", "gawk") and "inplace" in args and "-i" in args:
+        files = [x for i, x in enumerate(args) if not x.startswith("-") and not (i and args[i - 1] in ("-i", "-v", "-f"))]
+        return files[1:]                                # the first operand is the program
+    return []
+
+
 def check_persistence_shell(parsed: Parsed, res: DetResult, policy: Policy, cwd: str | None) -> None:
     roots = policy.trust.workspace_roots or ([cwd] if cwd else [])
     raw = parsed.code
-    # redirections and tee targets
-    for m in re.finditer(r"(?:>>?|\btee\s+(?:-a\s+)?)\s*(['\"]?)([^\s'\"|;&()]+)\1", raw):
-        _persistence_path_check(normalize_path(m.group(2), cwd), res, policy, roots, PATH_ARG)
+    targets: dict[str, None] = {}                       # written files, each checked once
+    # redirections (>, >>, >| noclobber override) and tee targets
+    for m in re.finditer(r"(?:>>?\|?|\btee\s+(?:-a\s+)?)\s*(['\"]?)([^\s'\"|;&()]+)\1", raw):
+        targets[m.group(2)] = None
+    # files an interpreter one-liner (python -c, node -e, ...) or an interpreter heredoc writes by literal path
+    for prog in interpreter_programs(parsed):
+        for t in interpreter_write_targets(prog):
+            targets[t] = None
     for seg in parsed.all_segments():
         w = seg.words
         if not w:
@@ -401,9 +442,17 @@ def check_persistence_shell(parsed: Parsed, res: DetResult, policy: Policy, cwd:
         if cmd in ("cp", "mv", "install", "ln", "touch", "chmod", "defaults") or (cmd == "sed" and any(x.startswith("-i") for x in w[1:])):
             for x in w[1:]:
                 if not x.startswith("-") and ("/" in x or x.startswith(".")) and not x.startswith("s/"):
-                    _persistence_path_check(normalize_path(x, cwd), res, policy, roots, PATH_ARG)
+                    targets[x] = None
+        for t in _shell_write_targets(cmd, w):
+            targets[t] = None
         if cmd == "git" and "config" in w and "--global" in w and any("core.hookspath" in x.lower() or "alias." in x.lower() for x in w):
             res.add(policy, R_PERSIST_GIT_HOOK, path=PATH_ARG, subject=seg.raw[:120])
+    seen: set[str] = set()
+    for t in targets:
+        p = normalize_path(t, cwd)
+        if p not in seen:
+            seen.add(p)
+            _persistence_path_check(p, res, policy, roots, PATH_ARG)
 
 
 def check_persistence_file_op(path: str, res: DetResult, policy: Policy, cwd: str | None, where: str) -> None:
