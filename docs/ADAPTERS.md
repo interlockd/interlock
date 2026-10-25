@@ -48,7 +48,9 @@ The daemon returns a `Verdict` with `disposition` in `allow | ask | block` (pre-
 
 ## 3. The shim
 
-Copy `interlockd/shims/claude-code/interlock-hook.sh` as a template. It must:
+Copy `interlockd/shims/claude-code/interlock-hook.sh` as a template, and add the same behaviour to the Python shim
+(`interlockd/shims/py/interlock-hook.py`, used on Windows); `tests/test_shim_py.py` requires the two to answer every
+captured payload byte for byte alike. A shim must:
 
 - read the token from `~/.interlock/token` (exit 0 silently if missing: an uninstalled Interlock must never break the agent);
 - POST `{"adapter": {...}, "payload": <raw stdin>}` to `/interlock/v1/hooks/<harness>?format=<renderer>` with the bearer token and a short timeout (pre 1.5 s, post 2.5 s);

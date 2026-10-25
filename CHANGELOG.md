@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Native Windows, agent hooks:** `interlock init` / `install` set up Claude Code, Codex, Cursor, Gemini CLI, Copilot CLI, Windsurf, Antigravity and Kiro on Windows with a Python hook shim (`interlockd/shims/py`): the same replies as the `sh` shim byte for byte (tested on every captured payload), about 60 ms per call, standard library only. The background service on Windows is a per-user Run-key entry (no admin rights). `selftest`, `capture` and `gateway` work on Windows too; only `sandbox` and `judge` still need macOS or Linux. CI runs `init` and every installed hook through `cmd.exe` / PowerShell on a Windows runner (`scripts/e2e-hooks.py`); live runs with each agent on Windows are still to do.
+- The MCP gateway starts servers like `npx` on Windows (their `.cmd` launchers), and `capture export` redacts Windows home paths to `/Users/dev/...` like POSIX ones.
+
 ## 0.1.5 (2026-10-24)
 
 - Plugin API: `interlockd.plugin_api` (version 1) is the stable interface for plugins (settings, policy validation, the managed policy, daemon status, hook integrity, audit records without tool content), covered by contract tests. A plugin can require a newer API with `PLUGIN_API = <n>`; an older interlockd skips it with a message. `interlock plugins` shows the API version.
