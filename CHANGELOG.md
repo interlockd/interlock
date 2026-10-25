@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Tests: the tier-0 latency test gates on the best median of five batches after a longer warm-up (a stall on a shared CI runner no longer fails it; a real slowdown still does), with a 30 ms p50 budget on Windows and 20 ms elsewhere.
+
 ## 0.1.7 (2026-10-25)
 
 - Plugin API (still version 1, additive): `compose_policies(docs)` returns one policy document that tightens a policy as applying the documents one after another would, for layering policies centrally (a baseline plus group policies) into the one managed policy a machine applies; `tighten_policy(base, data)` and `lint_policy(policy)` expose the tighten-only merge and `policy lint`. A property test checks `compose` against applying the layers in order on random policies. One documented exception: `trust.allowed_git_remotes` is narrowed left to right, never looser than the machine's own list.
