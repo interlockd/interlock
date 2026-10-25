@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.1.8 (2026-10-25)
 
 - Plugin API (still version 1, additive): `Decision` also carries content-free metadata for each audit record: `event_id`, `agent` (the adapter), `action_class`, `tier`, `mode`, `tool_name`, `finding_severities` and `policy_sha256`, plus `keyed_session(key)`, an HMAC pseudonym of the agent's session id. Still never exposed: tool arguments and results, file paths, the working directory, transcripts, reason and notice texts, finding subjects (a contract test feeds a record full of content and checks none of it comes through).
 - **Fix (Windows):** `interlock stop` (and `restart`, `uninstall`) no longer fails with "access is denied" when the daemon is already exiting as it is stopped (its venv launcher goes first); it waits for the exit instead.
