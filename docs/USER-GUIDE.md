@@ -623,6 +623,14 @@ they can't change a decision. A plugin that fails to load or raises is skipped w
 CLI or the daemon. `interlock plugins` lists what's installed; `INTERLOCK_PLUGINS=0` turns them all off. Install a
 plugin into Interlock's own environment, e.g. `pipx inject interlockd <package>`.
 
+**Plugin API.** Besides the two hooks, a plugin should use only `interlockd.plugin_api`, the stable interface:
+settings and the spool location, loading and validating policy, the managed (tighten-only) policy file, the daemon's
+status, hook integrity, and audit records with tool arguments and results left out. Everything else in `interlockd`
+is internal and can change in any release. Within one `plugin_api.API_VERSION`, names are only added; a breaking
+change bumps the version and keeps the old behaviour, with a deprecation warning, for at least one minor release. A
+plugin that needs a newer API sets `PLUGIN_API = <n>` in its module, and an older interlockd skips it with a message
+to upgrade. `interlock plugins` prints the API version. `tests/test_plugin_api.py` is the contract.
+
 ## 7. Troubleshooting
 
 | Symptom | Cause | Fix |

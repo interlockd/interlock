@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Plugin API: `interlockd.plugin_api` (version 1) is the stable interface for plugins (settings, policy validation, the managed policy, daemon status, hook integrity, audit records without tool content), covered by contract tests. A plugin can require a newer API with `PLUGIN_API = <n>`; an older interlockd skips it with a message. `interlock plugins` shows the API version.
+
 ## 0.1.4 (2026-10-24)
 
 - Windsurf adapter verified live on Windsurf (Devin.app) 3.10.67: a refused force push, an injected README refused before Cascade read it, and a `cat` of it refused (`flow.reread_withheld`). Windsurf's read hooks carry no contents, so the daemon reads the file itself (256 KiB, never a sensitive path). Fixed live: Windsurf sends `cwd: null`, so a repository policy never applied; the hook's own directory is used now. Windsurf runs each hook twice; the repeat is answered from the first decision.
