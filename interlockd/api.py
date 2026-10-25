@@ -18,10 +18,12 @@ OGR conformance (design §5.2), served at the bare /v1 prefix the spec uses:
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import socketserver
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -50,6 +52,20 @@ from .render import (
 
 log = logging.getLogger("interlockd.api")
 
+
+
+# Measured on Windsurf (Devin.app) 3.10.67: every hook runs twice, ~60 ms apart, with the same execution_id. The
+# repeat gets the first answer instead of a second decision (no duplicate audit record, no double denial count).
+REPEAT_TTL_S = 5.0
+_REPEATS: dict[tuple[str, str, str], tuple[float, bytes]] = {}
+
+
+def _windsurf_repeat_key(path: str, body: dict) -> tuple[str, str, str] | None:
+    p = body.get("payload") if path == "/interlock/v1/hooks/windsurf" else None
+    if not isinstance(p, dict) or not p.get("execution_id"):
+        return None
+    digest = hashlib.sha256(json.dumps(p.get("tool_info"), sort_keys=True, default=str).encode()).hexdigest()
+    return str(p["execution_id"]), str(p.get("agent_action_name")), digest
 
 class _Server(ThreadingHTTPServer):
     """HTTPServer.server_bind resolves the host with socket.getfqdn(), a reverse-DNS lookup that can stall for tens
@@ -257,8 +273,9 @@ class ApiServer:
                     elif u.path in ("/interlock/v1/hooks/copilot-cli", "/interlock/v1/hooks/windsurf", "/interlock/v1/hooks/antigravity"):
                         fn = {"copilot-cli": normalize_copilot, "windsurf": normalize_windsurf,
                               "antigravity": normalize_antigravity}[u.path.rsplit("/", 1)[-1]]
+                        extra = {"hook_cwd": shim.get("cwd")} if fn is normalize_windsurf and isinstance(shim.get("cwd"), str) else {}
                         event = fn(body.get("payload") or {}, event=str(shim.get("event") or "pre"),
-                                   agent_id=server.daemon.settings.agent_id, adapter_version=str(shim.get("version", "0")))
+                                   agent_id=server.daemon.settings.agent_id, adapter_version=str(shim.get("version", "0")), **extra)
                     elif u.path == "/interlock/v1/hooks/gemini-cli":
                         event = normalize_gemini_cli(body.get("payload") or {}, agent_id=server.daemon.settings.agent_id,
                                                      adapter_version=str(shim.get("version", "0")))
@@ -275,6 +292,16 @@ class ApiServer:
                 except Exception as e:  # noqa: BLE001  boundary: malformed hook payloads must never take the daemon down
                     self._send(400, {"error": f"could not normalize payload: {type(e).__name__}"})
                     return
+                repeat_key = _windsurf_repeat_key(u.path, body)
+                if repeat_key is not None:
+                    hit = _REPEATS.get(repeat_key)
+                    if hit is not None and time.monotonic() - hit[0] < REPEAT_TTL_S:
+                        self.send_response(200)        # the same hook call again: same answer, not a second decision
+                        self.send_header("Content-Type", "text/plain; charset=utf-8")
+                        self.send_header("Content-Length", str(len(hit[1])))
+                        self.end_headers()
+                        self.wfile.write(hit[1])
+                        return
                 try:
                     verdict = server.daemon.decide(event)
                 except Exception as e:
@@ -293,6 +320,10 @@ class ApiServer:
 
                 if fmt == "text":
                     data = render_text(verdict).encode()
+                    if repeat_key is not None:
+                        if len(_REPEATS) > 512:
+                            _REPEATS.clear()
+                        _REPEATS[repeat_key] = (time.monotonic(), data)
                     captured(data)
                     self.send_response(200)
                     self.send_header("Content-Type", "text/plain; charset=utf-8")

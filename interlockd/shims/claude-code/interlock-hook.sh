@@ -62,7 +62,9 @@ secs=$(( timeout_ms / 1000 )).$(( (timeout_ms % 1000) / 100 ))
 # prefer the daemon's Unix socket (mode 0600: only this user can connect) unless a URL was given explicitly
 sock=""; [ -z "$INTERLOCK_URL" ] && [ -S "$HOME_DIR/interlockd.sock" ] && sock="$HOME_DIR/interlockd.sock"
 if [ -n "$sock" ]; then base="http://localhost"; set -- --unix-socket "$sock"; else set --; fi
-reply=$(printf '{"adapter":{"name":"%s","version":"%s","event":"%s"},"payload":%s}' "$HARNESS" "$VERSION" "$EVENT" "$payload" | \
+# the hook's working directory: Windsurf runs hooks in the workspace but sends "cwd": null, so this locates its policy
+cwd_json=$(printf '%s' "$PWD" | sed 's/\\/\\\\/g; s/"/\\"/g')
+reply=$(printf '{"adapter":{"name":"%s","version":"%s","event":"%s","cwd":"%s"},"payload":%s}' "$HARNESS" "$VERSION" "$EVENT" "$cwd_json" "$payload" | \
   curl -sf -m "$secs" "$@" -H "authorization: Bearer $token" -H "content-type: application/json" \
     --data-binary @- "$base/interlock/v1/hooks/$HARNESS?format=$FORMAT" 2>/dev/null)
 rc=$?

@@ -54,7 +54,10 @@ def normalize_copilot(payload: dict[str, Any], *, event: str = "pre", agent_id: 
                   caps=Capabilities(ask=True, rewrite=True, withhold=True))     # postToolUse modifiedResult replaces
 
 
-def normalize_windsurf(payload: dict[str, Any], *, event: str = "pre", agent_id: str = "", adapter_version: str = "0") -> InterlockEvent:
+def normalize_windsurf(payload: dict[str, Any], *, event: str = "pre", agent_id: str = "", adapter_version: str = "0",
+                       hook_cwd: str | None = None) -> InterlockEvent:
+    """Measured on Windsurf (Devin.app) 3.10.67: `tool_info.cwd` is null for commands, so the hook's own working
+    directory (the workspace, sent by the shim) stands in."""
     p = payload
     action = str(p.get("agent_action_name") or "")
     info = p.get("tool_info") or {}
@@ -76,7 +79,7 @@ def normalize_windsurf(payload: dict[str, Any], *, event: str = "pre", agent_id:
     result = None
     if kind == "post_action":
         result, _ = _response_text(info.get("output") or info.get("result") or p.get("output"))
-    return _event("windsurf", kind, name, args, session=p.get("trajectory_id"), cwd=info.get("cwd"), version=adapter_version,
+    return _event("windsurf", kind, name, args, session=p.get("trajectory_id"), cwd=info.get("cwd") or hook_cwd or None, version=adapter_version,
                   agent_id=agent_id, result=result, mcp=mcp, caps=Capabilities(ask=False, rewrite=False, withhold=False))
 
 

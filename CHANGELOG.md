@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Windsurf adapter verified live on Windsurf (Devin.app) 3.10.67: a refused force push, an injected README refused before Cascade read it, and a `cat` of it refused (`flow.reread_withheld`). Windsurf's read hooks carry no contents, so the daemon reads the file itself (256 KiB, never a sensitive path). Fixed live: Windsurf sends `cwd: null`, so a repository policy never applied; the hook's own directory is used now. Windsurf runs each hook twice; the repeat is answered from the first decision.
+
 ## 0.1.3 (2026-10-24)
 
 - **Security fix (macOS, Windows):** path rules now match without case where the file system ignores it. On macOS (default APFS) a write to `~/.CLAUDE/settings.json`, `.GIT/hooks/pre-commit` or `.GitHub/Workflows/ci.yml` changes the real file but was allowed. Linux is unchanged.

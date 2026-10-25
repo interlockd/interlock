@@ -74,6 +74,14 @@ def test_report_pairs_calls_without_a_tool_id():
     other = capture.report({"gemini-cli": [rec("pre_action", "git push -f", "block"), rec("post_action", "git push -f", session="s2")]})
     assert "block held: yes" in other
 
+    def ws(kind, cmd, disp="allow"):                 # Windsurf: trajectory_id / tool_info, no tool_input
+        r = rec(kind, cmd, disp)
+        r["payload"] = {"agent_action_name": "pre_run_command" if kind == "pre_action" else "post_run_command",
+                        "trajectory_id": "t", "tool_info": {"command_line": cmd, "cwd": None}}
+        return r
+    assert "block held: yes" in capture.report({"windsurf": [ws("pre_action", "cat README.md", "block"), ws("post_action", "ls -la")]})
+    assert "block held: no" in capture.report({"windsurf": [ws("pre_action", "cat README.md", "block"), ws("post_action", "cat README.md")]})
+
 
 def test_scratch_pushes_go_nowhere(tmp_path):
     import subprocess

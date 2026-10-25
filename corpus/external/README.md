@@ -22,7 +22,7 @@ Prove the pipeline end-to-end before touching a real dataset. Each sample is han
 importer's expected shape and imports with **0 skipped**:
 
 ```sh
-cd ~/Documents/codes/interlock/interlock-AI/daemon
+# from the repository root
 .venv/bin/interlock corpus import --from agentdojo  corpus/external/samples/agentdojo.sample.json  --out corpus/external/imported/agentdojo.jsonl
 .venv/bin/interlock corpus import --from injecagent corpus/external/samples/injecagent.sample.json --out corpus/external/imported/injecagent.jsonl
 .venv/bin/interlock corpus import --from agentdrift corpus/external/samples/agentdrift.sample.json --out corpus/external/imported/agentdrift.jsonl
@@ -79,7 +79,7 @@ Always confirm the field mapping against a real sample before a full import (the
 defensive but best-effort). Import writes **unlabelled** cases:
 
 ```sh
-cd ~/Documents/codes/interlock/interlock-AI/daemon
+# from the repository root
 .venv/bin/interlock corpus import --from agentdojo  corpus/external/raw/agentdojo.json  --out corpus/external/imported/agentdojo.jsonl
 .venv/bin/interlock corpus import --from injecagent corpus/external/raw/injecagent.json --out corpus/external/imported/injecagent.jsonl
 .venv/bin/interlock corpus import --from agentdrift corpus/external/raw/agentdrift.json --out corpus/external/imported/agentdrift.jsonl

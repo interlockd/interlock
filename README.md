@@ -36,7 +36,8 @@ What the gate decides (enforce mode, nothing executed):
 | Cursor (CLI) | ✅ verified live: blocks before execution |
 | GitHub Copilot CLI | ✅ verified live: blocks before execution, withholds injected tool results |
 | Gemini CLI | ✅ verified live: blocks before execution, withholds injected tool results |
-| Windsurf, Antigravity CLI, OpenCode | built from their documented hooks/plugins; live verification in progress |
+| Windsurf (Devin.app) | ✅ verified live: blocks before execution, refuses to read injected files |
+| Antigravity CLI, OpenCode | built from their documented hooks/plugins; live verification in progress |
 | Your own agents (Claude Agent SDK, Strands, LangChain / LangGraph, OpenAI Agents SDK, Google ADK, CrewAI, Semantic Kernel) | ✅ in-process: `guard_options(options)`, `InterlockHooks()`, `guard_tools(tools)`, `guard_agent_tools(agent)`, `guard_agent(agent)`, `crewai.install()`, `guard_kernel(kernel)` |
 | JavaScript / TypeScript agents (Vercel AI SDK, Claude Agent SDK for TS, Mastra) | ✅ `@interlockd/sdk`: `guardTools(tools)`, `guardOptions(options)` ([sdk/js](sdk/js)) |
 | Any MCP client | ✅ the MCP gateway (`interlock gateway wrap`) gates every stdio and remote (HTTP) MCP server, hooks or not |

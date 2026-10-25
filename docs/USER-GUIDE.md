@@ -639,6 +639,7 @@ plugin into Interlock's own environment, e.g. `pipx inject interlockd <package>`
 
 - The optional judge is off by default. When enabled, some of its thresholds are still being calibrated; expect an `ask` on some actions you plainly requested (answering the confirmation resolves it).
 - Post-action withholding is verified on Claude Code, Codex, Copilot CLI and Gemini CLI. Cursor can replace results only for MCP tools; other Cursor results get a warning.
+- Windsurf's hooks carry no tool results: Interlock reads the file named by a read hook itself and refuses an injected one before Cascade reads it, but shell and MCP output can't be checked or withheld there. There is no ask, so an `ask` is a refusal.
 - Kiro has no native ask and ignores PostToolUse output, so on Kiro an `ask` renders as a block with a notice, and post-action warnings are record-only (`interlock log`, review index).
 - The Decider server binds loopback without auth and handles one request at a time. It is a dev-grade local dependency.
 - `interlock log` shows rule ids and probabilities, not prose rationales. The explainer is planned.

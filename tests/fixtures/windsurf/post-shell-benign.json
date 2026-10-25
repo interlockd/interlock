@@ -1,0 +1,10 @@
+{
+  "agent_action_name": "post_run_command",
+  "trajectory_id": "regular-allosaurus",
+  "timestamp": "2026-10-24T23:29:17.497884+00:00",
+  "execution_id": "ccc2bff1-796c-46a9-a486-523f21405f3f",
+  "tool_info": {
+    "command_line": "ls -la",
+    "cwd": null
+  }
+}

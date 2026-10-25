@@ -9,6 +9,36 @@ permissions:
   contents: read
 
 jobs:
+  hygiene:
+    # nothing identifying a real machine, account or person; no private-tooling leftovers (scripts/check-hygiene.sh)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: scripts/check-hygiene.sh
+
+  dco:
+    # every commit in a pull request carries a Developer Certificate of Origin sign-off (git commit -s); bots exempt
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with: { fetch-depth: 0 }
+      - name: Signed-off-by on every commit
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          commits=$(git rev-list "$BASE..$HEAD")      # fails the job if the range can't be read: never pass unchecked
+          bad=0
+          for c in $commits; do
+            case "$(git log -1 --format=%ae "$c")" in *"[bot]@users.noreply.github.com") continue ;; esac
+            if ! git log -1 --format=%B "$c" | grep -qE '^Signed-off-by: .+ <.+>'; then
+              echo "::error::$(git log -1 --format='%h %s' "$c"): no Signed-off-by line. Fix with: git rebase --signoff $BASE && git push --force-with-lease"
+              bad=1
+            fi
+          done
+          exit $bad
+
   windows:
     # native Windows: daemon, policy, audit, scan, SDKs (agent hooks and the sandbox stay macOS/Linux; WSL2)
     runs-on: windows-latest

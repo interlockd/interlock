@@ -129,3 +129,57 @@ def test_install_and_uninstall(tmp_path, monkeypatch):
     assert json.loads((home / ".gemini" / "config" / "hooks.json").read_text(encoding="utf-8")) == {"mine": {"enabled": True}}
     assert json.loads((home / ".codeium" / "windsurf" / "hooks.json").read_text(encoding="utf-8")) == {"hooks": {"pre_run_command": [{"command": "mine"}]}}
     assert not (home / ".copilot" / "hooks" / "interlock.json").exists() or "hooks" not in json.loads((home / ".copilot" / "hooks" / "interlock.json").read_text(encoding="utf-8"))
+
+
+@pytest.mark.skipif(shutil.which("curl") is None, reason="curl not available")
+def test_windsurf_null_cwd_uses_the_hook_directory(settings, tmp_path, monkeypatch):
+    """Measured on Windsurf (Devin.app) 3.10.67: pre_run_command carries "cwd": null. Hooks run in the workspace, so
+    the shim's own directory locates the repository policy; without it an enforcing repo policy was never applied."""
+    from interlockd.pipeline import Daemon
+    from interlockd.policy import Policy
+    from interlockd.store.memory import MemoryRepository
+    from interlockd.store.spool import Spool
+
+    monkeypatch.setenv("INTERLOCK_REPO_POLICIES", "1")
+    ws = tmp_path / "ws"; (ws / ".interlock").mkdir(parents=True)
+    (ws / ".interlock" / "policy.yaml").write_text("mode: enforce\n", encoding="utf-8")
+    pol = Policy(); pol.mode = "shadow"
+    d = Daemon(settings, spool=Spool(settings.spool_dir), repo=MemoryRepository(), policy=pol)
+    s = ApiServer(d, "tok", "127.0.0.1", 0); s.start_background()
+    try:
+        null_cwd = {**WIND_PRE, "tool_info": {"command_line": "git push --force origin main", "cwd": None}}
+        assert normalize_windsurf(null_cwd, hook_cwd=str(ws)).context.cwd == str(ws)
+        home = tmp_path / "ih"; home.mkdir(); (home / "token").write_text("tok\n", encoding="utf-8")
+        sh = tmp_path / "w.sh"; sh.write_text(SHIM.read_text(encoding="utf-8").replace("__HARNESS__", "windsurf"), encoding="utf-8")
+        env = {**os.environ, "INTERLOCK_HOME": str(home), "INTERLOCK_URL": "http://{}:{}".format(*s.address)}
+        run = lambda cwd: subprocess.run(["sh", str(sh), "pre"], input=json.dumps(null_cwd), text=True, capture_output=True,
+                                         env=env, cwd=cwd, timeout=10, check=False)
+        r = run(ws)
+        assert r.returncode == 2 and "[interlock]" in r.stderr                       # the repo policy enforces
+        assert run(tmp_path).returncode == 0                                         # outside it: shadow, recorded only
+    finally:
+        s.shutdown()
+
+
+def test_windsurf_reads_are_probed_from_disk(server, tmp_path):
+    """Windsurf's read hooks carry only file_path (measured, 3.10.67), so the daemon reads the file itself and refuses
+    an injected one before the agent sees it. A later shell read of the same file is refused too."""
+    bad = tmp_path / "README.md"; bad.write_text("# Build\n" + INJECT + "\n", encoding="utf-8")
+    good = tmp_path / "NOTES.md"; good.write_text("# Notes\nBuild with make.\n", encoding="utf-8")
+    read = {"agent_action_name": "pre_read_code", "trajectory_id": "r1", "tool_info": {"file_path": str(bad)}}
+    out = _api(server, "windsurf", read, "text")
+    assert out.startswith("block enforce") and "was not read" in out and "evil.example" not in out
+    assert _api(server, "windsurf", {**read, "tool_info": {"file_path": str(good)}}, "text").startswith("allow")
+    assert _api(server, "windsurf", {**read, "tool_info": {"file_path": str(tmp_path)}}, "text").startswith("allow")  # a directory
+    shell = {"agent_action_name": "pre_run_command", "trajectory_id": "r1", "tool_info": {"command_line": "cat README.md", "cwd": str(tmp_path)}}
+    assert _api(server, "windsurf", shell, "text").startswith(("block", "ask"))
+    assert _api(server, "windsurf", {**shell, "trajectory_id": "r2"}, "text").startswith("allow")
+
+
+def test_windsurf_repeated_hook_call_is_decided_once(server):
+    """Windsurf runs each hook twice with the same execution_id (measured): one decision, one audit record."""
+    p = {**WIND_PRE, "execution_id": "dup-1"}
+    a, b = _api(server, "windsurf", p, "text"), _api(server, "windsurf", p, "text")
+    assert a == b and a.startswith("block enforce")
+    assert sum(1 for r in server.daemon.repo.events.values() if r["tool_name"] == "Shell") == 1
+    assert _api(server, "windsurf", {**p, "execution_id": "dup-2"}, "text").startswith("block enforce")

@@ -189,11 +189,14 @@ FIXTURES = Path(__file__).parent / "fixtures"
 @pytest.mark.parametrize("path", sorted(FIXTURES.glob("*/*.json")), ids=lambda p: f"{p.parent.name}/{p.stem}")
 def test_live_captured_payloads(server, path):
     """Payloads captured from the real CLIs (Claude Code 2.1.296, Codex 0.162, Cursor CLI 2026.10.16, Copilot CLI
-    1.0.98, Gemini CLI 0.65.0), usernames and emails redacted."""
+    1.0.98, Gemini CLI 0.65.0, Windsurf (Devin.app) 3.10.67), usernames and emails redacted."""
     harness, payload = path.parent.name, json.loads(path.read_text(encoding="utf-8"))
-    fmt = "claude-code" if harness in ("claude-code", "codex") else harness
+    fmt = "claude-code" if harness in ("claude-code", "codex") else "text" if harness == "windsurf" else harness
     body = _post(server, harness, payload, fmt=fmt, event="post" if path.stem.startswith("post-") else "pre")
-    if path.stem.endswith("-block") and harness == "cursor":
+    if harness == "windsurf":                                          # text reply; the shim exits 2 on "block enforce"
+        assert body.startswith("block enforce") == path.stem.endswith("-block")
+        assert ("[interlock]" in body) == path.stem.endswith("-block")
+    elif path.stem.endswith("-block") and harness == "cursor":
         out = json.loads(body)
         assert out["permission"] == "deny" and "[interlock]" in out["agent_message"]
     elif path.stem.endswith("-block") and harness == "copilot-cli":

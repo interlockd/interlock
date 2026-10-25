@@ -115,7 +115,7 @@ def detect(cwd: Path | None = None) -> list[Detected]:
     windsurf = shutil.which("windsurf")
     out.append(Detected("windsurf", bool(windsurf or (home / ".codeium" / "windsurf").is_dir()),
                         why=windsurf or str(home / ".codeium" / "windsurf"), target=home / ".codeium" / "windsurf" / "hooks.json",
-                        note=f"Windsurf (Cascade hooks): {built}; results can't be withheld"))
+                        note="Windsurf / Devin.app (Cascade hooks): verified live on 3.10.67; injected files are refused before reading, shell output can't be checked"))
     agy = shutil.which("antigravity") or shutil.which("agy")
     out.append(Detected("antigravity", bool(agy or (home / ".gemini" / "antigravity-cli").is_dir()),
                         why=agy or str(home / ".gemini" / "antigravity-cli"), target=home / ".gemini" / "config" / "hooks.json",

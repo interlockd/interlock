@@ -12,7 +12,8 @@ uv venv --python 3.12 && uv pip install -e ".[dev]" --python .venv/bin/python
 .venv/bin/interlock test --corpus corpus/archetypes   # evaluation corpus
 ```
 
-CI runs all four on every pull request.
+CI runs all four on every pull request, on Linux, macOS and Windows, plus `scripts/check-hygiene.sh` (no real home
+paths, account ids or keys in committed files; run it before you push).
 
 ## What to contribute
 
@@ -22,12 +23,18 @@ CI runs all four on every pull request.
 
 ## Pull requests
 
-Open pull requests against `main` here as usual. This repository is published from the maintainers' development
-repository, so a merged change reaches `main` through the next published commit, with you credited as author (and
-`Co-authored-by` on the published commit); your PR is closed with a link to it rather than merged with the button.
+Fork, branch, and open a pull request against `main`. A maintainer reviews it; when CI is green and the review is
+done, it is merged here.
 
+- **Sign off every commit** (`git commit -s`). This adds `Signed-off-by: Your Name <you@example.com>` and certifies the
+  [Developer Certificate of Origin](https://developercertificate.org/): that you wrote the change or otherwise have the
+  right to submit it under this project's license. CI checks it; to fix a branch, `git rebase --signoff main` and
+  force-push. There is no separate contributor agreement.
+- Contributions are licensed under Apache-2.0, the same license as the project (inbound = outbound). The project
+  stays Apache-2.0.
 - Keep changes focused; include tests.
 - Describe what you verified and how (live against the tool, or tests only).
-- By contributing you agree your contribution is licensed under Apache-2.0.
+- **Security issues**: don't open a pull request or issue; report privately (see [SECURITY.md](SECURITY.md)). Fixes
+  are prepared in a private security advisory and released before details are public.
 
 By taking part you agree to the [code of conduct](CODE_OF_CONDUCT.md).

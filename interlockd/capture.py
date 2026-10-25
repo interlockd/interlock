@@ -105,10 +105,14 @@ def load(home: Path, harness: str | None = None) -> dict[str, list[dict]]:
 
 
 def _same_call(pre: dict, post: dict) -> bool:
+    """Same session and same input. Gemini CLI: session_id / tool_input; Windsurf: trajectory_id / tool_info."""
     p, q = pre.get("payload") or {}, post.get("payload") or {}
-    return (post["normalized"]["kind"] == "post_action" and post["normalized"]["tool"] == pre["normalized"]["tool"]
-            and isinstance(p, dict) and isinstance(q, dict) and p.get("session_id") == q.get("session_id")
-            and p.get("tool_input") == q.get("tool_input"))
+    if not (isinstance(p, dict) and isinstance(q, dict)) or post["normalized"]["kind"] != "post_action" \
+            or post["normalized"]["tool"] != pre["normalized"]["tool"]:
+        return False
+    args = p.get("tool_input", p.get("tool_info"))
+    return (args is not None and args == q.get("tool_input", q.get("tool_info"))
+            and p.get("session_id", p.get("trajectory_id")) == q.get("session_id", q.get("trajectory_id")))
 
 
 def report(caps: dict[str, list[dict]]) -> str:
