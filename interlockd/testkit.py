@@ -343,6 +343,28 @@ def _event_from_case(case: dict, ws: Path):
     return ev
 
 
+def prepare_judge_case(case: dict, ws: Path, *, policy: Policy | None = None, corpus_trust: dict | None = None):
+    """(event, deterministic result or None) for a judge-labelled case, its manifest written into `ws`: what the
+    judge's projections are built from (see _project_for_question)."""
+    ws.mkdir(parents=True, exist_ok=True)
+    for name, content in (case.get("manifest") or {}).items():
+        if isinstance(content, str):
+            (ws / name).parent.mkdir(parents=True, exist_ok=True)
+            (ws / name).write_text(content, encoding="utf-8")
+    # a deterministic pass gives us normalized structure for the intent projection
+    det = None
+    try:
+        ev = _event_from_case(case, ws)
+        pol = make_policy(str(ws), base=policy, corpus_trust=corpus_trust)
+        tier = route(ev, workspace_roots=pol.trust.workspace_roots, protected=pol.trust.protected_paths,
+                     sensitive=pol.trust.sensitive_paths)
+        if tier.tier > 0:
+            det = det_evaluate(ev, pol, tier)
+    except Exception:  # noqa: BLE001 — projection is best-effort; a bad case still gets asked with minimal state
+        ev = _event_from_case(case, ws)
+    return ev, det
+
+
 def score_judge(cases: list[dict], backend, ws_root: Path, *, policy: Policy | None = None,
                 corpus_trust: dict | None = None, timeout_ms: int = 2000) -> JudgeReport:
     """Score the judge against every case that carries `judge` labels. Pure w.r.t. the filesystem beyond
@@ -353,23 +375,7 @@ def score_judge(cases: list[dict], backend, ws_root: Path, *, policy: Policy | N
         labels = case.get("judge") or {}
         if not labels:
             continue
-        ws = ws_root / f"j{i}"
-        ws.mkdir(parents=True, exist_ok=True)
-        for name, content in (case.get("manifest") or {}).items():
-            if isinstance(content, str):
-                (ws / name).parent.mkdir(parents=True, exist_ok=True)
-                (ws / name).write_text(content, encoding="utf-8")
-        # a deterministic pass gives us normalized structure for the intent projection
-        det = None
-        try:
-            ev = _event_from_case(case, ws)
-            pol = make_policy(str(ws), base=policy, corpus_trust=corpus_trust)
-            tier = route(ev, workspace_roots=pol.trust.workspace_roots, protected=pol.trust.protected_paths,
-                         sensitive=pol.trust.sensitive_paths)
-            if tier.tier > 0:
-                det = det_evaluate(ev, pol, tier)
-        except Exception:  # noqa: BLE001 — projection is best-effort; a bad case still gets asked with minimal state
-            ev = _event_from_case(case, ws)
+        ev, det = prepare_judge_case(case, ws_root / f"j{i}", policy=policy, corpus_trust=corpus_trust)
         report.cases_scored += 1
         for qid, expected in labels.items():
             q = QUESTIONS_V1.get(qid)

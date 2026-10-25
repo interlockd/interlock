@@ -162,7 +162,7 @@ Log: `~/.interlock/mcp-proxy.log`. Pins: `~/.interlock/mcp-pins.json`; after rev
 | `interlock log [-n N] [-f] [--workspace W]` | Tail decisions from the spool: time, pre/post, disposition, tier, action class, tool, latency, argument. |
 | `interlock health` | Ping the daemon: version, mode, profile, policy hash. |
 | `interlock token` | Print the token path. |
-| `interlock test [--corpus DIR] [--policy] [--json P] [--max-fpr F] [--max-fnr F] [--quiet]` | Run the deterministic corpus and report per-rule and per-category false-positive / false-negative rates. Defaults to Interlock's clean policy; `--policy` uses your live layered policy. Exits non-zero when a gate is exceeded (CI). See §3.1. |
+| `interlock test [--corpus DIR] [--policy] [--json P] [--max-fpr F] [--max-fnr F] [--judge SPEC [--flip]] [--quiet]` | Run the deterministic corpus and report per-rule and per-category false-positive / false-negative rates. Defaults to Interlock's clean policy; `--policy` uses your live layered policy. Exits non-zero when a gate is exceeded (CI). See §3.1. |
 
 ### Repository checks (`interlock scan`)
 
@@ -541,6 +541,8 @@ A `meets = yes` row is the credible result; `NO` means the dev fit did not gener
 **Writing the bands into policy.** `--write-bands <policy.yaml>` merges the fitted thresholds into that file's `judge.bands` section (`intent_ask_below`, `intent_block_below`, `injection_warn_at`, `injection_withhold_at`, `confirm_allow_at`, `exfil_ask_at`), printing a diff of each change. It **refuses to write a question's bands unless that question meets its targets on held-out**; pass `--force` to override (and own the consequence). Re-run calibration on every judge/model-version change — the question wording is versioned with the daemon, so changing it is a corpus re-run.
 
 `interlock test --judge <spec>` is also accepted: it runs the deterministic pass as usual and then appends a one-line judge summary, for a quick combined check.
+
+**The flip test (`interlock test --judge <spec> --flip [--min-flip-rate F]`).** Accuracy can't tell a judge that reads the evidence from one that answers from the proposed action alone, since most corpus cases are only seen one way. The flip test asks each `intent_authorized`, `confirmation_given` and `injection_present` label twice through the judge interface: as recorded, and with the deciding evidence turned around (the user's messages become an unrelated question, or an explicit request for exactly this action; the latest user message declines, or approves; the untrusted content becomes plain build notes, or gets an explicit instruction to the agent appended). A pair passes when both answers are on the correct side of 0.5; a pair with the same answer both times is listed as *sticky*. The summary gives the flip rate overall and per question; `--min-flip-rate` makes it a gate (exit 1 below it). `exfil_risk` and choice questions are not flipped. With `replay:PATH` the file needs recorded answers for the flipped states too; unrecorded pairs count as unjudged.
 
 ### 3.4 Red-teaming your policy (`interlock redteam`)
 
