@@ -26,9 +26,9 @@ from .policy import Policy
 
 API_VERSION = 1
 
-__all__ = ["API_VERSION", "INTERLOCKD_VERSION", "DaemonStatus", "Decision", "check_managed_policy", "daemon_status",
-           "decisions", "effective_policy", "hook_status", "load_policy", "managed_policy_path", "settings_from_args",
-           "spool_dir", "validate_policy"]
+__all__ = ["API_VERSION", "INTERLOCKD_VERSION", "DaemonStatus", "Decision", "LintIssue", "check_managed_policy",
+           "compose_policies", "daemon_status", "decisions", "effective_policy", "hook_status", "lint_policy",
+           "load_policy", "managed_policy_path", "settings_from_args", "spool_dir", "tighten_policy", "validate_policy"]
 
 
 # ---- settings and policy -------------------------------------------------------------------------------------
@@ -89,6 +89,38 @@ def check_managed_policy(data: Mapping[str, Any], *, base: Policy | None = None,
     _, ignored = apply_managed(base, Managed("(candidate)", "", {k: v for k, v in data.items()
                                                                  if k not in ("source_paths", "sha256")}))
     return ignored
+
+
+def tighten_policy(base: Policy, data: Mapping[str, Any]) -> tuple[Policy, list[str]]:
+    """Apply only the parts of `data` that make `base` stricter, as the managed policy and repository policies are
+    applied. Returns (policy, the keys that were ignored because they would loosen a decision)."""
+    from .policy.workspace import tighten
+
+    return tighten(base, {k: v for k, v in data.items() if k not in ("source_paths", "sha256")})
+
+
+def compose_policies(docs: list[Mapping[str, Any]]) -> dict[str, Any]:
+    """One policy document that tightens a policy as applying `docs` in order would (for layering policies centrally,
+    e.g. an organization's baseline and group policies, into one managed policy). See
+    `interlockd.policy.workspace.compose` for the rules, including the one exception (`trust.allowed_git_remotes`)."""
+    from .policy.workspace import compose
+
+    return compose([dict(d) for d in docs if isinstance(d, Mapping)])
+
+
+@dataclass(frozen=True)
+class LintIssue:
+    level: str                 # "error" or "warning"
+    where: str                 # e.g. "packs.overrides.shell.pipe_to_shel"
+    message: str
+
+
+def lint_policy(policy: Policy) -> list[LintIssue]:
+    """What `interlock policy lint` reports for `policy`: unknown rule ids (an override that does nothing), unknown
+    packs, weakened or disabled critical rules, catch-all allows."""
+    from .policy_lint import lint
+
+    return [LintIssue(i.level, i.where, i.message) for i in lint(policy)]
 
 
 def effective_policy(policy: Policy, home: str | Path) -> Policy:

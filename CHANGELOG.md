@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Plugin API (still version 1, additive): `compose_policies(docs)` returns one policy document that tightens a policy as applying the documents one after another would, for layering policies centrally (a baseline plus group policies) into the one managed policy a machine applies; `tighten_policy(base, data)` and `lint_policy(policy)` expose the tighten-only merge and `policy lint`. A property test checks `compose` against applying the layers in order on random policies. One documented exception: `trust.allowed_git_remotes` is narrowed left to right, never looser than the machine's own list.
+
 ## 0.1.6 (2026-10-25)
 
 - **Native Windows, agent hooks:** `interlock init` / `install` set up Claude Code, Codex, Cursor, Gemini CLI, Copilot CLI, Windsurf, Antigravity and Kiro on Windows with a Python hook shim (`interlockd/shims/py`): the same replies as the `sh` shim byte for byte (tested on every captured payload), about 60 ms per call, standard library only. The background service on Windows is a per-user Run-key entry (no admin rights). `selftest`, `capture` and `gateway` work on Windows too; only `sandbox` and `judge` still need macOS or Linux. CI runs `init` and every installed hook through `cmd.exe` / PowerShell on a Windows runner (`scripts/e2e-hooks.py`); live runs with each agent on Windows are still to do.
