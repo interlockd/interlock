@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `interlock scan` (and the GitHub Action) also checks the project's own agent setup: Claude Code project settings (hooks the repository ships, hooks switched off, allow rules that hand out an interpreter, the network or writes anywhere, literal secrets in `env`), prompt and instruction files (`CLAUDE.md`, `AGENTS.md`, `.cursor/rules/`, Kiro steering, `.claude/commands/`, `.claude/agents/`, skills) for literal secrets and instructions that switch off safety checks, and Python / TypeScript agent code (Strands, LangGraph / LangChain, OpenAI Agents SDK, CrewAI) whose tools get shell, file-write or network access without the Interlock integration, plus system prompts that interpolate untrusted input. Findings go into the SARIF output with a line number and count for `--fail-on`. Text patterns, not data flow; see the user guide, "Repository checks".
+
 ## 0.1.7 (2026-10-25)
 
 - Plugin API (still version 1, additive): `compose_policies(docs)` returns one policy document that tightens a policy as applying the documents one after another would, for layering policies centrally (a baseline plus group policies) into the one managed policy a machine applies; `tighten_policy(base, data)` and `lint_policy(policy)` expose the tighten-only merge and `policy lint`. A property test checks `compose` against applying the layers in order on random policies. One documented exception: `trust.allowed_git_remotes` is narrowed left to right, never looser than the machine's own list.
