@@ -139,7 +139,7 @@ Log: `~/.interlock/mcp-proxy.log`. Pins: `~/.interlock/mcp-pins.json`; after rev
 | `interlock start \| stop \| restart \| status` | Manage the background daemon; `status` shows service, mode, policy, and hooks. |
 | `interlock enforce \| shadow` | Switch mode in `~/.interlock/policy.yaml` (comments kept) and restart the daemon. Warns if a workspace policy sets its own mode. |
 | `interlock report [--days N] [--json]` | What the gate decided: what enforce would have blocked or asked in shadow mode, what was enforced, top rules, recent stops, latency. |
-| `interlock scan [--project P] [--json] [--all] [--fail-on high\|medium\|low\|never]` | Static audit of the MCP servers and agent settings on this machine (no daemon, no network, secret values never printed): unpinned `npx`/`uvx`/docker packages, plain-HTTP remotes, inline secrets, filesystem roots at `/` or `~`, inline shell servers, auto-approved tools, permission-bypass modes, agents Interlock is not protecting, and committed agent instruction files (AGENTS.md, CLAUDE.md, `.cursor/rules/`, ...) that carry injected instructions or invisible Unicode. Reads Claude Code, Claude Desktop, Codex, Cursor, VS Code, Kiro, Gemini CLI, and Windsurf configs. Exits 1 at or above `--fail-on` (default `high`), so it can gate CI. |
+| `interlock scan [--project P] [--json] [--all] [--fail-on high\|medium\|low\|never]` | Static audit of the MCP servers and agent settings on this machine, and of the project's own agent configs, prompts and agent code (no daemon, no network, secret values never printed; repository checks below): unpinned `npx`/`uvx`/docker packages, plain-HTTP remotes, inline secrets, filesystem roots at `/` or `~`, inline shell servers, auto-approved tools, permission-bypass modes, agents Interlock is not protecting, and committed agent instruction files (AGENTS.md, CLAUDE.md, `.cursor/rules/`, ...) that carry injected instructions or invisible Unicode. Reads Claude Code, Claude Desktop, Codex, Cursor, VS Code, Kiro, Gemini CLI, and Windsurf configs. Exits 1 at or above `--fail-on` (default `high`), so it can gate CI. |
 | `interlock gateway wrap \| unwrap \| status [--dry-run]` | Route every stdio MCP server through the MCP gateway (§2.1). `wrap` rewrites each server's launch command (original kept after `--`, a `.interlock-backup` copy written once); `unwrap` restores them exactly; `status` shows which servers are protected. `interlock init --gateway` wraps, `uninstall` unwraps. |
 | `interlock mcp-proxy --name N -- <cmd...>` | The gateway itself; normally written into MCP configs by `gateway wrap` rather than run by hand. |
 | `interlock mcp-pins [--accept SERVER [--tool T]]` | List pinned MCP tool definitions; `--accept` clears pins after you review a changed tool, so its new definition is pinned on next use. |
@@ -162,6 +162,27 @@ Log: `~/.interlock/mcp-proxy.log`. Pins: `~/.interlock/mcp-pins.json`; after rev
 | `interlock health` | Ping the daemon: version, mode, profile, policy hash. |
 | `interlock token` | Print the token path. |
 | `interlock test [--corpus DIR] [--policy] [--json P] [--max-fpr F] [--max-fnr F] [--quiet]` | Run the deterministic corpus and report per-rule and per-category false-positive / false-negative rates. Defaults to Interlock's clean policy; `--policy` uses your live layered policy. Exits non-zero when a gate is exceeded (CI). See §3.1. |
+
+### Repository checks (`interlock scan`)
+
+Besides MCP servers and the machine's agent settings, `scan` reads the project (`--project`, default the current directory; `node_modules`, virtualenvs, `dist`/`build` and other hidden directories are skipped, at most 3000 files of up to 512 KiB):
+
+| Rule | Severity | What |
+|---|---|---|
+| `agent.hooks_disabled` | high | `disableAllHooks: true` in a Claude Code settings file (user or project): no hook runs, Interlock's included. |
+| `agent.inline_secret` | high | A literal secret in a settings file's `env`. |
+| `agent.risky_allow` | medium | `permissions.allow` hands out a shell interpreter (`Bash(python3:*)`, `Bash(bash:*)`, ...), the network (`WebFetch` for any domain, `Bash(curl:*)`), destructive or privileged commands (`Bash(rm:*)`, `Bash(sudo:*)`, `Bash(git push:*)`), or writes anywhere (`Edit`, `Write(**)`). Scoped entries (`Bash(npm test:*)`, `WebFetch(domain:...)`, `Edit(src/**)`) are fine. |
+| `agent.broad_directories` | medium | `additionalDirectories` gives the agent `/` or the home directory. |
+| `agent.risky_hook` | high / medium | A hook in the project's `.claude/settings*.json` runs downloaded or decoded code (high) or reaches the network (medium). |
+| `agent.project_hook` | low | Any other hook the repository ships: it runs on every machine that trusts the project. Interlock's own hook is not reported. |
+| `prompt.inline_secret` | high | A literal secret in an instruction or prompt file or a system prompt (placeholders such as `your_api_key_here` are ignored). |
+| `prompt.disables_safety` | medium | The text tells the agent to switch off a check: skip or bypass safety / approval / confirmation / hooks / the sandbox, `--no-verify`, `--dangerously-skip-permissions`, never ask for confirmation. Negated forms ("never skip the checks", "do not use --no-verify") are not reported. |
+| `prompt.untrusted_interpolation` | medium | A system prompt in code interpolates untrusted text into the instructions: an f-string, `.format()`, a template literal, a LangChain `("system", "... {context}")` template or a CrewAI `{input}` placeholder whose variable is named like user input, a document, a page, an email, a tool result, retrieved context, ... (`{today}` or `{agent_name}` are fine). |
+| `code.ungated_shell_tool` | medium (may become high in a later release) | Agent code (Strands, LangGraph / LangChain, OpenAI Agents SDK, CrewAI; Python or TypeScript) that defines tools and runs shell commands (`subprocess`, `os.system`, `child_process`, prebuilt shell / REPL / code-interpreter tools) in a file that doesn't import the Interlock integration. |
+| `code.ungated_file_write_tool` | medium | The same, for file writes and deletes (and prebuilt file-writer tools). |
+| `code.ungated_network_tool` | medium | The same, for HTTP clients and prebuilt request / scraping tools. |
+
+Prompt files are the instruction files (`CLAUDE.md`, `AGENTS.md`, `.cursor/rules/`, `.kiro/steering/`, ...), `.claude/commands/`, `.claude/agents/`, `.claude/skills/` and `.github/prompts/`. If another file of the project imports the Interlock integration, `code.*` findings are reported as low (the tools may well be wrapped there). These are text patterns, not data flow: a tool built in another module or a prompt assembled at run time is not seen, and a finding is a prompt to look, not proof. Code and prompt findings carry a line number, so in SARIF (and GitHub code scanning) they land on the line.
 
 ## 3. Policy
 

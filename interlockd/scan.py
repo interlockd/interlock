@@ -46,6 +46,7 @@ class Finding:
     message: str
     fix: str = ""
     source: str = ""
+    line: int = 0                      # 1-based line in `source` when known (code and prompt findings)
 
 
 # ------------------------------------------------------------------------------------------------ discovery
@@ -347,6 +348,9 @@ def run_scan(home: Path, interlock_home: Path, project: Path) -> ScanResult:
     findings += check_agent_settings(home, project)
     findings += check_protection(home, interlock_home, project)
     findings += check_instruction_files(project)
+    from .scan_repo import check_repository
+
+    findings += check_repository(home, project)
     findings.sort(key=lambda x: (SEVERITY_ORDER[x.severity], x.agent, x.subject))
     return ScanResult(servers, sources, findings)
 
@@ -395,7 +399,10 @@ def to_sarif(r: ScanResult, project: Path) -> dict:
             uri = Path(src).resolve().relative_to(project).as_posix() if src else ""
         except ValueError:
             uri = ""
-        loc = [{"physicalLocation": {"artifactLocation": {"uri": uri}}}] if uri else []
+        phys: dict = {"artifactLocation": {"uri": uri}}
+        if f.line:
+            phys["region"] = {"startLine": f.line}
+        loc = [{"physicalLocation": phys}] if uri else []
         results.append({"ruleId": f.rule, "level": level[f.severity],
                         "message": {"text": f"{f.agent} / {f.subject}: {f.message}" + (f". Fix: {f.fix}" if f.fix else "")},
                         "locations": loc})
