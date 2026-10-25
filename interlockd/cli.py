@@ -631,6 +631,23 @@ def cmd_test(args) -> int:
                     print(f"\njudge ({label}): all {jr.unjudged} unjudged")
         except ValueError as e:
             print(f"judge summary skipped: {e}", file=sys.stderr)
+    if getattr(args, "flip", False):
+        if not getattr(args, "judge", None):
+            print("--flip needs --judge", file=sys.stderr)
+            return 2
+        import tempfile as _tf
+
+        from .judges.flip import flip_test, format_flip
+
+        backend, label = _build_judge_backend(args.judge)
+        with _tf.TemporaryDirectory() as _td:
+            fr = flip_test(cases, backend, Path(_td), policy=policy, corpus_trust=corpus_trust)
+        if not args.quiet:
+            print("\n" + format_flip(fr, label))
+        rate = fr.flip_rate()
+        if args.min_flip_rate is not None and (rate is None or rate < args.min_flip_rate):
+            print(f"\nFAIL — judge flip rate {'n/a' if rate is None else f'{rate:.2f}'} < {args.min_flip_rate}")
+            return 1
     if not args.quiet:
         print("\nPASS — all cases matched and all gates within thresholds")
     return 0
@@ -2102,6 +2119,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--judge", help="also score judge labels with this backend (replay:PATH or http(s):// URL) "
                    "and print a one-line summary; the deterministic result is unaffected")
     p.add_argument("--quiet", action="store_true", help="suppress the table; only set the exit code (and write --json)")
+    p.add_argument("--flip", action="store_true", help="with --judge: also run the flip test (does the answer follow the "
+                   "evidence? each label is asked as recorded and with its evidence turned around)")
+    p.add_argument("--min-flip-rate", type=float, help="with --flip: exit 1 when the judge's flip rate is below this")
     p.add_argument("--workspace", help="with --policy: the repository whose .interlock/policy.yaml to layer in (CI)")
     p.set_defaults(fn=cmd_test)
 
