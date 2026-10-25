@@ -684,7 +684,7 @@ plugin into Interlock's own environment, e.g. `pipx inject interlockd <package>`
 **Plugin API.** Besides the two hooks, a plugin should use only `interlockd.plugin_api`, the stable interface:
 settings and the spool location, loading, validating and linting policy, tightening one policy with another and
 composing several into one (`compose_policies`: layer an organization's baseline and group policies into one managed
-file), the managed (tighten-only) policy file, the daemon's status, hook integrity, and audit records with tool arguments and results left out. Everything else in `interlockd`
+file), the managed (tighten-only) policy file, the daemon's status, hook integrity, and audit records as content-free metadata (`decisions()`: disposition, rule ids, categories and severities, agent, tool name, action class, tier, mode, policy hash, a keyed session pseudonym; never arguments, results, paths or texts). Everything else in `interlockd`
 is internal and can change in any release. Within one `plugin_api.API_VERSION`, names are only added; a breaking
 change bumps the version and keeps the old behaviour, with a deprecation warning, for at least one minor release. A
 plugin that needs a newer API sets `PLUGIN_API = <n>` in its module, and an older interlockd skips it with a message

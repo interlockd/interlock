@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import inspect
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -87,13 +88,37 @@ def test_daemon_status_and_decisions(tmp_path):
     assert got[0].kind == "pre_action" and not got[0].selftest and isinstance(got[0].received_at, datetime)
     assert "git.force_push_protected_branch" in {r for r, _ in got[0].findings}
     assert all(c.startswith("security.") for _, c in got[0].findings)
+    b = got[0]
+    assert b.event_id and (b.agent, b.tool_name, b.mode) == ("claude-code", "Bash", "enforce")
+    assert b.action_class and b.tier == 2 and b.policy_sha256      # "default" for a policy built in code
+    assert len(b.finding_severities) == len(b.findings) and set(b.finding_severities) <= {"low", "medium", "high", "critical"}
+    assert b.keyed_session(b"k1") == got[1].keyed_session(b"k1") != b.keyed_session(b"k2")
+    assert b.keyed_session(b"k1").startswith("s_") and "s1" not in b.keyed_session(b"k1")
     assert list(plugin_api.decisions(s.spool_dir, before - timedelta(days=2), before)) == []
     assert list(plugin_api.decisions(tmp_path / "missing", before, datetime.now(UTC))) == []
 
 
-def test_decisions_expose_no_tool_content():
+def test_decisions_expose_no_tool_content(tmp_path):
     fields = set(plugin_api.Decision.__dataclass_fields__)
-    assert fields == {"received_at", "kind", "disposition", "findings", "judged", "session_id", "selftest"}
+    assert fields == {"received_at", "kind", "disposition", "findings", "judged", "session_id", "selftest",
+                      "event_id", "agent", "action_class", "tier", "mode", "tool_name", "finding_severities",
+                      "policy_sha256"}
+    # a record full of content: none of it reaches a Decision
+    secret = "SECRET-7f3a"
+    spool = tmp_path / "spool"
+    spool.mkdir()
+    rec = {"event_id": "evt_1", "received_at": datetime.now(UTC).isoformat(), "kind": "post_action",
+           "adapter": "codex", "tool_name": "Bash", "disposition": "withhold", "mode": "enforce", "tier": 2,
+           "normalized": {"action_class": "shell", "command": f"cat {secret}"}, "session_id": "s9",
+           "arguments": {"command": f"echo {secret}"}, "cwd": f"/home/{secret}", "reason": f"saw {secret}",
+           "notice": f"{secret}", "result_head": secret, "result_tail": secret, "evidence": [secret],
+           "state": {"user_messages": [secret]}, "agent_user": secret, "agent_workspace": secret,
+           "findings": [{"rule": "local.injection_heuristic", "category": "security.prompt_injection",
+                         "severity": "high", "detector": "local", "path": f"/x/{secret}", "subject": secret}]}
+    (spool / f"{datetime.now(UTC).date().isoformat()}.jsonl").write_text(json.dumps(rec) + "\n", encoding="utf-8")
+    got = list(plugin_api.decisions(spool, datetime.now(UTC) - timedelta(days=1), datetime.now(UTC) + timedelta(days=1)))
+    assert len(got) == 1 and secret not in repr(got[0])
+    assert (got[0].action_class, got[0].finding_severities, got[0].agent) == ("shell", ("high",), "codex")
 
 
 def test_hook_status_without_init(tmp_path):
