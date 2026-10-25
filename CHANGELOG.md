@@ -1,8 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.1.4 (2026-10-24)
 
 - Windsurf adapter verified live on Windsurf (Devin.app) 3.10.67: a refused force push, an injected README refused before Cascade read it, and a `cat` of it refused (`flow.reread_withheld`). Windsurf's read hooks carry no contents, so the daemon reads the file itself (256 KiB, never a sensitive path). Fixed live: Windsurf sends `cwd: null`, so a repository policy never applied; the hook's own directory is used now. Windsurf runs each hook twice; the repeat is answered from the first decision.
+- `interlock capture` pairs Windsurf's calls with their results (its report showed a false "block held: no").
+- Contributing: pull requests are reviewed and merged in this repository, with a DCO sign-off on each commit (`git commit -s`, checked in CI); CI also runs `scripts/check-hygiene.sh`, which keeps real home paths, account ids and keys out of the repository.
 
 ## 0.1.3 (2026-10-24)
 
