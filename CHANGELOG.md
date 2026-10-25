@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Tests: the tier-0 latency test gates on the best median of five batches after a longer warm-up (a stall on a shared CI runner no longer fails it; a real slowdown still does), with a 30 ms p50 budget on Windows and 20 ms elsewhere.
+- Tests: the gateway tests no longer depend on the caller's environment (they failed when `INTERLOCK_HOME` was set).
 
 ## 0.1.7 (2026-10-25)
 

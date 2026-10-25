@@ -29,6 +29,7 @@ def sandbox(tmp_path, monkeypatch):
         f.write_text(json.dumps(d, indent=2) + "\n", encoding="utf-8")
     monkeypatch.setenv("HOME", str(home)); monkeypatch.setenv("PATH", "/usr/bin:/bin")
     monkeypatch.setenv("USERPROFILE", str(home)); monkeypatch.setenv("PATH", "/usr/bin:/bin")   # Windows: Path.home()
+    monkeypatch.delenv("INTERLOCK_HOME", raising=False)   # the caller's INTERLOCK_HOME must not leak into the sandbox
     return home, proj, {f: f.read_text(encoding="utf-8") for f in files}
 
 
