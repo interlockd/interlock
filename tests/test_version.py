@@ -34,7 +34,7 @@ def test_windows_hook_commands_point_to_wsl(monkeypatch, capsys):
 
     monkeypatch.setattr(cli.sys, "platform", "win32")
     monkeypatch.delenv("INTERLOCK_ALLOW_WINDOWS", raising=False)
-    for cmd in (["init", "--yes"], ["install", "--claude-code"], ["sandbox", "--", "true"], ["judge", "status"]):
+    for cmd in (["sandbox", "--", "true"], ["judge", "status"]):
         assert cli.main(cmd) == 1
         err = capsys.readouterr().err
         assert f"interlock {cmd[0]}" in err and "WSL2" in err

@@ -150,7 +150,10 @@ def redact(obj: Any, home: str | None = None, user: str | None = None) -> Any:
     user = user or getpass.getuser()
 
     def s(x: str) -> str:
-        x = x.replace(home, "/Users/dev").replace(os.path.realpath(home), "/Users/dev")
+        for h in dict.fromkeys((home, os.path.realpath(home))):
+            if "\\" in h:                  # Windows: the rest of the path in forward slashes too, like the POSIX fixtures
+                x = re.sub(re.escape(h) + r"((?:\\[^\\\"'\s]*)*)", lambda m: "/Users/dev" + m.group(1).replace("\\", "/"), x)
+            x = x.replace(h, "/Users/dev")
         x = EMAIL.sub("dev@example.com", x)
         return re.sub(rf"\b{re.escape(user)}\b", "dev", x) if user else x
 

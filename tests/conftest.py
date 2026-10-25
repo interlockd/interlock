@@ -65,15 +65,14 @@ def _no_update_check(monkeypatch):
     monkeypatch.setenv("INTERLOCK_REPO_POLICIES", "0")
 
 
-# Native Windows runs the daemon core and SDKs; these need macOS/Linux (WSL2 on Windows), see cli.WINDOWS_UNSUPPORTED.
-POSIX_ONLY = {"test_shim_sh.py": "POSIX shell hook shims", "test_unix_socket.py": "Unix sockets",
-              "test_sandbox.py": "the OS sandbox is macOS/Linux", "test_cursor_gemini.py": "hook shims and init",
-              "test_gateway.py": "gateway wrap", "test_capture.py": "capture", "test_onboard.py": "init and launchd/systemd"}
-# single tests that run hook shims or `interlock init` / `install` / `judge`
-POSIX_ONLY_TESTS = {"test_shim_prints_daemon_json", "test_windsurf_null_cwd_uses_the_hook_directory", "test_installers_merge_existing_settings", "test_shims",
-                    "test_install_and_uninstall", "test_install_uninstall", "test_init_mcp_registers_and_uninstall_removes",
-                    "test_status_without_judge", "test_doctor_after_init_then_tamper",
-                    "test_doctor_flags_loose_token_and_bad_policy"}
+# Native Windows runs everything except these: the POSIX sh shims (Windows uses the Python shim, tests/test_shim_py.py),
+# Unix sockets, and the OS sandbox (macOS/Linux; see cli.WINDOWS_UNSUPPORTED).
+POSIX_ONLY = {"test_shim_sh.py": "the POSIX sh shim", "test_unix_socket.py": "Unix sockets",
+              "test_sandbox.py": "the OS sandbox is macOS/Linux"}
+# single tests that run the sh shim directly
+POSIX_ONLY_TESTS = {"test_shim_prints_daemon_json", "test_shim_per_harness", "test_shims",
+                    "test_launchd_unit_and_sequence",          # launchd: macOS
+                    "test_status_without_judge"}               # the local judge: macOS/Linux
 
 
 def pytest_collection_modifyitems(config, items):
@@ -82,6 +81,13 @@ def pytest_collection_modifyitems(config, items):
     if sys.platform != "win32":
         return
     for item in items:
-        reason = POSIX_ONLY.get(item.path.name) or ("hook shims or init" if item.originalname in POSIX_ONLY_TESTS else None)
+        reason = POSIX_ONLY.get(item.path.name) or ("the POSIX sh shim" if item.originalname in POSIX_ONLY_TESTS else None)
         if reason:
             item.add_marker(pytest.mark.skip(reason=f"not on native Windows: {reason}"))
+
+
+def installed_shim_name() -> str:
+    """The shim file `init` installs on this platform (see cli.hook_runtime)."""
+    from interlockd.cli import hook_runtime
+
+    return "interlock-hook.py" if hook_runtime() == "py" else "interlock-hook.sh"

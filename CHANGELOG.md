@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- **Native Windows, agent hooks:** `interlock init` / `install` set up Claude Code, Codex, Cursor, Gemini CLI, Copilot CLI, Windsurf, Antigravity and Kiro on Windows with a Python hook shim (`interlockd/shims/py`): the same replies as the `sh` shim byte for byte (tested on every captured payload), about 60 ms per call, standard library only. The background service on Windows is a per-user Run-key entry (no admin rights). `selftest`, `capture` and `gateway` work on Windows too; only `sandbox` and `judge` still need macOS or Linux. CI runs `init` and every installed hook through `cmd.exe` / PowerShell on a Windows runner (`scripts/e2e-hooks.py`); live runs with each agent on Windows are still to do.
+- The MCP gateway starts servers like `npx` on Windows (their `.cmd` launchers), and `capture export` redacts Windows home paths to `/Users/dev/...` like POSIX ones.
 - Releases publish `@interlockd/sdk` to npm from the release workflow with npm trusted publishing (no stored token) and npm provenance; the release checks that the tag matches the JS SDK's version too.
 
 ## 0.1.5 (2026-10-24)

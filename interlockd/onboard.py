@@ -137,6 +137,12 @@ def detect(cwd: Path | None = None) -> list[Detected]:
 # ------------------------------------------------------------------------------------------------ hook removal
 
 
+def mentions(text: str, marker: str) -> bool:
+    """True when `text` (a config file, or a hook group's JSON) refers to `marker` (an installed shim path), written
+    plainly or JSON-escaped (Windows paths: each backslash appears doubled)."""
+    return marker in text or json.dumps(marker)[1:-1] in text
+
+
 def remove_hook_groups(path: Path, marker: str) -> bool:
     """Drop every hook group whose JSON mentions `marker` (the installed shim path). Returns True if changed."""
     if not path.exists() or not path.read_text(encoding="utf-8").strip():
@@ -148,7 +154,7 @@ def remove_hook_groups(path: Path, marker: str) -> bool:
     changed = False
     for event in list(hooks):
         groups = hooks[event] or []
-        kept = [g for g in groups if marker not in json.dumps(g)]
+        kept = [g for g in groups if not mentions(json.dumps(g), marker)]
         if len(kept) != len(groups):
             changed = True
             if kept:

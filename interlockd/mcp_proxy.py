@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -263,8 +264,11 @@ class Proxy:
 
     # ---- run
     def run(self) -> int:
+        cmd = list(self.command)
+        if sys.platform == "win32" and cmd:              # "npx" is npx.cmd there: CreateProcess needs the full name
+            cmd[0] = shutil.which(cmd[0]) or cmd[0]
         try:
-            proc = subprocess.Popen(self.command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=None,
+            proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=None,
                                     text=True, bufsize=1)
         except OSError as e:
             self.log(f"could not start server {self.command[0]!r}: {e}")

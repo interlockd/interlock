@@ -12,8 +12,9 @@ pipx install interlockd     # or: uv tool install interlockd, or: brew install i
 interlock init              # finds your agents, installs hooks, starts the daemon (shadow mode)
 ```
 
-Runs on macOS and Linux (Python 3.12+). On Windows, use it inside WSL2 and run your agents from the WSL terminal.
-Natively on Windows, the daemon and the Python and JavaScript SDKs work today (`interlock start`); agent hooks are next.
+Runs on macOS, Linux and Windows (Python 3.12+). On Windows, `interlock init` installs the agent hooks natively (a
+Python hook shim instead of `sh` + `curl`) and starts the daemon at sign-in; the OS sandbox and the local judge need
+macOS or Linux (on Windows, WSL2).
 
 New here? [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md) walks through shadow mode, enforcing, MCP servers, your own agents and CI in about ten minutes.
 

@@ -8,6 +8,7 @@ license = { text = "Apache-2.0" }
 classifiers = [
   "Operating System :: MacOS",
   "Operating System :: POSIX :: Linux",
+  "Operating System :: Microsoft :: Windows",
   "Environment :: Console",
   "Programming Language :: Python :: 3.12",
   "Topic :: Security",

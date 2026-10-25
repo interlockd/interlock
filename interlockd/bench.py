@@ -32,7 +32,7 @@ def _pct(xs: list[float]) -> dict[str, float]:
 
 def run(rounds: int = 3, http_calls: int = 300, shim_calls: int = 100) -> dict[str, dict]:
     from .api import ApiServer
-    from .cli import CLAUDE_SHIM_SRC
+    from .cli import CLAUDE_SHIM_SRC, PY_SHIM_SRC, _hook_python, hook_runtime
     from .config import Settings
     from .models import AdapterInfo, Capabilities, Context, InterlockEvent, ToolCall, ToolResult
     from .pipeline import Daemon
@@ -81,7 +81,18 @@ def run(rounds: int = 3, http_calls: int = 300, shim_calls: int = 100) -> dict[s
             t0 = time.perf_counter(); urllib.request.urlopen(req, timeout=5).read(); t.append((time.perf_counter() - t0) * 1000)
         out["http"] = _pct(t)
 
-        if shutil.which("curl"):
+        if hook_runtime() == "py":                          # the Python shim (native Windows), over TCP
+            shim = home / "shim.py"; shim.write_text(PY_SHIM_SRC.read_text(encoding="utf-8").replace("__HARNESS__", "claude-code"), encoding="utf-8")
+            env = {**os.environ, "INTERLOCK_HOME": str(home), "INTERLOCK_URL": f"http://{host}:{port}"}
+            t = []
+            for _ in range(shim_calls):
+                t0 = time.perf_counter()
+                subprocess.run([_hook_python(), "-I", "-S", str(shim)], input=json.dumps(payload), text=True, capture_output=True,
+                               env=env, timeout=10, check=False)
+                t.append((time.perf_counter() - t0) * 1000)
+            if t:
+                out["shim (python)"] = _pct(t)
+        elif shutil.which("curl"):
             shim = home / "shim.sh"; shim.write_text(CLAUDE_SHIM_SRC.read_text(encoding="utf-8").replace("__HARNESS__", "claude-code"), encoding="utf-8")
             for label, extra in (("shim (tcp)", {"INTERLOCK_URL": f"http://{host}:{port}"}), ("shim (unix)", {})):
                 env = {**{k: v for k, v in os.environ.items() if k != "INTERLOCK_URL"}, "INTERLOCK_HOME": str(home), **extra}
