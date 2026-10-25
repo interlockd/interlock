@@ -328,6 +328,63 @@ def exec_literals(program: str) -> list[str]:
     return out
 
 
+# Calls that write a file named by a string literal, in the languages INTERPRETERS runs. Group "p" is the written path.
+# Reads (open(p), readFileSync, File.read) are deliberately absent: reading agent config is not persistence.
+_LIT = r"""[rRbBfFuU]{0,2}(['"])(?P<p>[^'"\n]+)(?P=q)"""
+_MODE = r"""\s*,\s*(?:mode\s*=\s*)?[rRbBfFuU]{0,2}['"][^'"]*[wax+][^'"]*['"]"""
+_ANY_ARG = r"""[^,()]+?"""
+INTERPRETER_WRITE_CALLS = [re.compile(p.replace("(['\"])", "(?P<q>['\"])", 1)) for p in (
+    # python
+    r"\bopen\(\s*" + _LIT + _MODE,
+    r"\bPath\(\s*" + _LIT + r"\s*\)\s*\.\s*(?:write_text|write_bytes|touch|symlink_to|hardlink_to)\b",
+    r"\bPath\(\s*" + _LIT + r"\s*\)\s*\.\s*open\(\s*[rRbBfFuU]{0,2}['\"][^'\"]*[wax+]",
+    r"\b(?:shutil\.(?:copy|copy2|copyfile|copytree|move)|os\.(?:rename|replace|symlink|link))\(\s*" + _ANY_ARG + r"\s*,\s*" + _LIT,
+    # node
+    r"\b(?:writeFileSync|appendFileSync|writeFile|appendFile|createWriteStream|outputFileSync|outputFile)\(\s*" + _LIT,
+    r"\b(?:copyFileSync|copyFile|renameSync|rename|symlinkSync|cpSync)\(\s*" + _ANY_ARG + r"\s*,\s*" + _LIT,
+    # ruby
+    r"\bFile\.(?:write|binwrite)\(\s*" + _LIT,
+    r"\bFile\.open\(\s*" + _LIT + _MODE,
+    r"\bFileUtils\.(?:cp|mv|copy|move|ln_s|ln)\(\s*" + _ANY_ARG + r"\s*,\s*" + _LIT,
+    r"\bFileUtils\.touch\(\s*" + _LIT,
+    # php
+    r"\bfile_put_contents\(\s*" + _LIT,
+    # perl: open(FH, '>', 'p') / open(FH, ">p") / open FH, ">>p"
+    r"\bopen\s*\(?\s*(?:my\s+)?[\w$]+\s*,\s*['\"](?:>|>>|\+<|\+>)['\"]\s*,\s*" + _LIT,
+)] + [re.compile(r"""\bopen\s*\(?\s*(?:my\s+)?[\w$]+\s*,\s*(?P<q>['"])(?:>>?|\+<|\+>)\s*(?P<p>[^'"\n]+)(?P=q)""")]
+
+
+def interpreter_write_targets(program: str) -> list[str]:
+    """Paths an interpreter program writes by string literal: open('.claude/settings.json', 'w'), fs.writeFileSync(…),
+    File.write(…), file_put_contents(…), perl's open(F, '>', …). Computed paths are not resolved (no data flow)."""
+    out: list[str] = []
+    for pat in INTERPRETER_WRITE_CALLS:
+        for m in pat.finditer(program):
+            p = m.group("p").strip()
+            if p and p not in out:
+                out.append(p)
+    return out
+
+
+def interpreter_programs(parsed: Parsed) -> list[str]:
+    """Program text run by a non-shell interpreter: `python3 -c '…'`, `node -e '…'` (at any nesting depth) and the
+    bodies of heredocs fed to one (`python3 - <<'EOF'`)."""
+    out: list[str] = []
+    for seg in parsed.all_segments():
+        w = seg.words[1:] if seg.words[:1] == ["sudo"] else seg.words
+        cmd = os.path.basename(w[0]) if w else ""
+        if cmd in INTERPRETERS and cmd not in SHELLS:
+            flags = INTERPRETERS[cmd]
+            for i, x in enumerate(w[1:], 1):
+                if x in flags and i + 1 < len(w):
+                    out.append(w[i + 1])
+                    break
+    for consumer, body in split_heredocs(parsed.raw)[1]:
+        if _heredoc_kind(consumer) == "interpreter":
+            out.append(body)
+    return out
+
+
 def _consumer_words(consumer_line: str) -> list[str]:
     head = consumer_line.split("\n", 1)[0]
     idx = head.find("<<")

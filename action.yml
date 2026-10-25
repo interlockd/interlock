@@ -5,7 +5,7 @@ branding: { icon: shield, color: blue }
 
 inputs:
   scan:
-    description: Run `interlock scan` on the repository's MCP and agent configs (.mcp.json, .cursor/, .vscode/, .kiro/, .gemini/, .claude/)
+    description: Run `interlock scan` on the repository's MCP and agent configs (.mcp.json, .cursor/, .vscode/, .kiro/, .gemini/, .claude/), prompt and instruction files, and agent code
     default: "true"
   fail-on:
     description: Fail the job on scan findings at or above this severity (high | medium | low | never)
@@ -18,6 +18,12 @@ inputs:
     default: "true"
   corpus:
     description: Extra corpus directory of your own cases (optional)
+    default: ""
+  redteam:
+    description: Run `interlock redteam` against the repository's policy, replaying the built-in attack packs and the evaluation corpus; fails the job when an attack gets through (optional)
+    default: "false"
+  redteam-scenarios:
+    description: Extra directory of your own red-team scenarios (optional, with redteam)
     default: ""
   version:
     description: Interlock version to install from PyPI (empty = the version of this action)
@@ -39,7 +45,7 @@ runs:
         if [ -n "${{ inputs.version }}" ]; then pip install --quiet "interlockd==${{ inputs.version }}"
         else pip install --quiet "${{ github.action_path }}"; fi
         interlock --help >/dev/null
-    - name: Scan MCP servers and agent configs
+    - name: Scan MCP servers, agent configs, prompts and agent code
       if: inputs.scan == 'true'
       shell: bash
       run: |
@@ -54,4 +60,13 @@ runs:
         export HOME="$(mktemp -d)"
         args=(test --policy --workspace "$GITHUB_WORKSPACE")
         [ -n "${{ inputs.corpus }}" ] && args+=(--corpus "${{ inputs.corpus }}")
+        interlock "${args[@]}"
+    - name: Red-team the policy
+      if: inputs.redteam == 'true'
+      shell: bash
+      run: |
+        export HOME="$(mktemp -d)"
+        args=(redteam --policy --workspace "$GITHUB_WORKSPACE")
+        [ -d "${{ github.action_path }}/corpus/archetypes" ] && args+=(--corpus "${{ github.action_path }}/corpus/archetypes")
+        [ -n "${{ inputs.redteam-scenarios }}" ] && args+=(--corpus "${{ inputs.redteam-scenarios }}")
         interlock "${args[@]}"

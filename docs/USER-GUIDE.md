@@ -139,7 +139,8 @@ Log: `~/.interlock/mcp-proxy.log`. Pins: `~/.interlock/mcp-pins.json`; after rev
 | `interlock start \| stop \| restart \| status` | Manage the background daemon; `status` shows service, mode, policy, and hooks. |
 | `interlock enforce \| shadow` | Switch mode in `~/.interlock/policy.yaml` (comments kept) and restart the daemon. Warns if a workspace policy sets its own mode. |
 | `interlock report [--days N] [--json]` | What the gate decided: what enforce would have blocked or asked in shadow mode, what was enforced, top rules, recent stops, latency. |
-| `interlock scan [--project P] [--json] [--all] [--fail-on high\|medium\|low\|never]` | Static audit of the MCP servers and agent settings on this machine (no daemon, no network, secret values never printed): unpinned `npx`/`uvx`/docker packages, plain-HTTP remotes, inline secrets, filesystem roots at `/` or `~`, inline shell servers, auto-approved tools, permission-bypass modes, agents Interlock is not protecting, and committed agent instruction files (AGENTS.md, CLAUDE.md, `.cursor/rules/`, ...) that carry injected instructions or invisible Unicode. Reads Claude Code, Claude Desktop, Codex, Cursor, VS Code, Kiro, Gemini CLI, and Windsurf configs. Exits 1 at or above `--fail-on` (default `high`), so it can gate CI. |
+| `interlock redteam [--policy] [--workspace W] [--corpus DIR] [--only PACK] [--strict] [--json P]` | Replay attack scenarios through the deterministic pipeline and a policy and report what gets through; exits 1 on a regression (§3.4). |
+| `interlock scan [--project P] [--json] [--all] [--fail-on high\|medium\|low\|never]` | Static audit of the MCP servers and agent settings on this machine, and of the project's own agent configs, prompts and agent code (no daemon, no network, secret values never printed; repository checks below): unpinned `npx`/`uvx`/docker packages, plain-HTTP remotes, inline secrets, filesystem roots at `/` or `~`, inline shell servers, auto-approved tools, permission-bypass modes, agents Interlock is not protecting, and committed agent instruction files (AGENTS.md, CLAUDE.md, `.cursor/rules/`, ...) that carry injected instructions or invisible Unicode. Reads Claude Code, Claude Desktop, Codex, Cursor, VS Code, Kiro, Gemini CLI, and Windsurf configs. Exits 1 at or above `--fail-on` (default `high`), so it can gate CI. |
 | `interlock gateway wrap \| unwrap \| status [--dry-run]` | Route every stdio MCP server through the MCP gateway (§2.1). `wrap` rewrites each server's launch command (original kept after `--`, a `.interlock-backup` copy written once); `unwrap` restores them exactly; `status` shows which servers are protected. `interlock init --gateway` wraps, `uninstall` unwraps. |
 | `interlock mcp-proxy --name N -- <cmd...>` | The gateway itself; normally written into MCP configs by `gateway wrap` rather than run by hand. |
 | `interlock mcp-pins [--accept SERVER [--tool T]]` | List pinned MCP tool definitions; `--accept` clears pins after you review a changed tool, so its new definition is pinned on next use. |
@@ -162,6 +163,27 @@ Log: `~/.interlock/mcp-proxy.log`. Pins: `~/.interlock/mcp-pins.json`; after rev
 | `interlock health` | Ping the daemon: version, mode, profile, policy hash. |
 | `interlock token` | Print the token path. |
 | `interlock test [--corpus DIR] [--policy] [--json P] [--max-fpr F] [--max-fnr F] [--quiet]` | Run the deterministic corpus and report per-rule and per-category false-positive / false-negative rates. Defaults to Interlock's clean policy; `--policy` uses your live layered policy. Exits non-zero when a gate is exceeded (CI). See §3.1. |
+
+### Repository checks (`interlock scan`)
+
+Besides MCP servers and the machine's agent settings, `scan` reads the project (`--project`, default the current directory; `node_modules`, virtualenvs, `dist`/`build` and other hidden directories are skipped, at most 3000 files of up to 512 KiB):
+
+| Rule | Severity | What |
+|---|---|---|
+| `agent.hooks_disabled` | high | `disableAllHooks: true` in a Claude Code settings file (user or project): no hook runs, Interlock's included. |
+| `agent.inline_secret` | high | A literal secret in a settings file's `env`. |
+| `agent.risky_allow` | medium | `permissions.allow` hands out a shell interpreter (`Bash(python3:*)`, `Bash(bash:*)`, ...), the network (`WebFetch` for any domain, `Bash(curl:*)`), destructive or privileged commands (`Bash(rm:*)`, `Bash(sudo:*)`, `Bash(git push:*)`), or writes anywhere (`Edit`, `Write(**)`). Scoped entries (`Bash(npm test:*)`, `WebFetch(domain:...)`, `Edit(src/**)`) are fine. |
+| `agent.broad_directories` | medium | `additionalDirectories` gives the agent `/` or the home directory. |
+| `agent.risky_hook` | high / medium | A hook in the project's `.claude/settings*.json` runs downloaded or decoded code (high) or reaches the network (medium). |
+| `agent.project_hook` | low | Any other hook the repository ships: it runs on every machine that trusts the project. Interlock's own hook is not reported. |
+| `prompt.inline_secret` | high | A literal secret in an instruction or prompt file or a system prompt (placeholders such as `your_api_key_here` are ignored). |
+| `prompt.disables_safety` | medium | The text tells the agent to switch off a check: skip or bypass safety / approval / confirmation / hooks / the sandbox, `--no-verify`, `--dangerously-skip-permissions`, never ask for confirmation. Negated forms ("never skip the checks", "do not use --no-verify") are not reported. |
+| `prompt.untrusted_interpolation` | medium | A system prompt in code interpolates untrusted text into the instructions: an f-string, `.format()`, a template literal, a LangChain `("system", "... {context}")` template or a CrewAI `{input}` placeholder whose variable is named like user input, a document, a page, an email, a tool result, retrieved context, ... (`{today}` or `{agent_name}` are fine). |
+| `code.ungated_shell_tool` | medium (may become high in a later release) | Agent code (Strands, LangGraph / LangChain, OpenAI Agents SDK, CrewAI; Python or TypeScript) that defines tools and runs shell commands (`subprocess`, `os.system`, `child_process`, prebuilt shell / REPL / code-interpreter tools) in a file that doesn't import the Interlock integration. |
+| `code.ungated_file_write_tool` | medium | The same, for file writes and deletes (and prebuilt file-writer tools). |
+| `code.ungated_network_tool` | medium | The same, for HTTP clients and prebuilt request / scraping tools. |
+
+Prompt files are the instruction files (`CLAUDE.md`, `AGENTS.md`, `.cursor/rules/`, `.kiro/steering/`, ...), `.claude/commands/`, `.claude/agents/`, `.claude/skills/` and `.github/prompts/`. If another file of the project imports the Interlock integration, `code.*` findings are reported as low (the tools may well be wrapped there). These are text patterns, not data flow: a tool built in another module or a prompt assembled at run time is not seen, and a finding is a prompt to look, not proof. Code and prompt findings carry a line number, so in SARIF (and GitHub code scanning) they land on the line.
 
 ## 3. Policy
 
@@ -349,6 +371,12 @@ Default actions: `block` refuses; `ask` requires confirmation; `model` routes to
 | `shell.rm_rf_dangerous_target` | `security.malicious_command` | critical | block |
 | `shell.sudo` | `security.privilege_escalation` | high | ask |
 
+**What `persistence.agent_config_write` covers.** Writes to an agent's configuration: the user's `~/.claude/`, `~/.kiro/`, `~/.codex/`, `~/.cursor/`, `~/.gemini/` and `~/.interlock/`, and any `.claude/`, `.kiro/`, `.codex/` or `.interlock/` directory in a project (settings, hooks, commands, agents, the Interlock policy). Logs, pid files, spools and session files are runtime artifacts and don't count (forged session transcripts are `persistence.transcript_write`). Instruction files such as `CLAUDE.md` or `AGENTS.md` at a project's top level are `memory.instruction_file_write` instead.
+
+*Claude Code agent worktrees.* Claude Code checks agent worktrees out under `<repo>/.claude/worktrees/<name>/`. Each one counts as a checkout of its own: its source files are ordinary workspace files (they are no longer refused just because the path contains `/.claude/`), while its own `.claude/`, `.kiro/`, `.codex/` and `.interlock/` stay protected, as do the parent `.claude/` (settings, hooks, commands, agents) and anything placed directly in `.claude/worktrees/`. Paths are normalized first (`<worktree>/src/../../../settings.json` is the parent's `settings.json`), compared without case, and symlinks are followed (a link inside a worktree that leads to agent configuration is checked where it leads). A worktree under the user's own `~/.claude/` gets no exemption. To protect worktrees as a whole again, add `.claude/worktrees/**` to `trust.protected_paths`.
+
+*Writes through the shell.* Besides redirections (`>`, `>>`, `>|`) the rule follows the files that `tee` (every file, with any flags), `cp`, `mv`, `install`, `ln`, `touch`, `sed -i`, `perl -i` / `ruby -i`, `awk -i inplace`, `dd of=`, `truncate` and a local `rsync` destination write, and the file an interpreter one-liner or interpreter heredoc writes by a literal path: Python `open(path, 'w'/'a'/'x'/'+')`, `Path(path).write_text(...)`, `shutil.copy/move(..., path)`, Node `fs.writeFileSync/appendFileSync/createWriteStream(path)` and `copyFileSync/renameSync(..., path)`, Ruby `File.write`, PHP `file_put_contents`, Perl `open(F, '>', path)`. Reads (`open(path)`, `readFileSync`) and paths that only appear in a string are not writes. A path computed at run time (`open(base + '/settings.json', 'w')`, a variable, a script file) is not followed.
+
 ### Mandate (Cedar)
 
 The mandate is the authorization envelope, written in Cedar and evaluated locally. Interlock binds each normalized tool call to an `Interlock::Action` (`git.push`, `git.remote_add`, `git.history_rewrite`, `net.egress`, `destructive`, `install`, `fs.read_sensitive`, `fs.write`, `fs.write_outside`, `sys.privilege`, `shell.build_or_test`) with `context.input` carrying the parsed structure (for `git.push`: `remote`, `branch`, `force`, `delete`; for `net.egress`: `hosts`, whether the call is a fetch tool or `curl` / `wget` in a shell) and `context.session` carrying the session counters. Calls that bind to no action are reported as `unjudged` for the mandate, never allowed by default.
@@ -513,6 +541,24 @@ A `meets = yes` row is the credible result; `NO` means the dev fit did not gener
 **Writing the bands into policy.** `--write-bands <policy.yaml>` merges the fitted thresholds into that file's `judge.bands` section (`intent_ask_below`, `intent_block_below`, `injection_warn_at`, `injection_withhold_at`, `confirm_allow_at`, `exfil_ask_at`), printing a diff of each change. It **refuses to write a question's bands unless that question meets its targets on held-out**; pass `--force` to override (and own the consequence). Re-run calibration on every judge/model-version change — the question wording is versioned with the daemon, so changing it is a corpus re-run.
 
 `interlock test --judge <spec>` is also accepted: it runs the deterministic pass as usual and then appends a one-line judge summary, for a quick combined check.
+
+### 3.4 Red-teaming your policy (`interlock redteam`)
+
+`interlock test` checks rules case by case; `interlock redteam` asks the attacker's question: run these attacks against this policy, what gets through? Each scenario is replayed in a fresh session and a fresh temporary workspace through the same pipeline the daemon runs (tiers, packs, flow rules, mandate, the post-action injection heuristics, the gateway's tool screening), with no judge, no Guardrails, no classifier model and no network.
+
+Built-in packs (`interlockd/data/redteam/`): `injection_tool_results` (instructions in fetched pages, READMEs, issues and MCP results, then the action they ask for), `exfiltration`, `persistence`, `supply_chain` and `mcp_poisoning` (poisoned tool descriptions, tool shadowing, a rug pull, poisoned call results). In a source checkout and in the GitHub Action the attack cases of `corpus/archetypes` replay too (`--no-archetypes` leaves them out); `--corpus DIR` adds your own.
+
+A scenario is either a corpus case (`cmd`, or `tool` and `args`) or a list of `steps`, each `{"kind": "pre", ...}` (a tool call), `{"kind": "post", "tool": ..., "result": "..."}` (a tool result) or `{"kind": "tools", "server": ..., "tools": [...]}` (an MCP tools/list); see the module docstring of `interlockd/redteam.py`. `expect` is the strongest outcome expected over the steps, in the order allow < warn < model < ask < block = withhold = hidden. The report counts each scenario as:
+
+| Outcome | Meaning |
+|---|---|
+| stopped | at least as strong as expected |
+| weaker | still stopped (ask or stronger) but weaker than expected, e.g. a block that is now an ask; fails only with `--strict` |
+| THROUGH | expected to be stopped and nothing stopped it: a regression, the command exits 1 |
+| gap | a documented known gap (`"known_gap": true`) that still gets through; listed, not a failure |
+| skip | judge-dependent (expects `model`, or a judge-only case): a deterministic replay can't decide it |
+
+By default the packs run against Interlock's default policy (a regression there is a bug in Interlock); `--policy` replays them against your layered policy (`~/.interlock/policy.yaml`, the workspace policy with `--workspace`, and the managed policy), which is the useful check before you soften a rule. Scenario trust assumptions live in `interlockd/data/redteam/_corpus.yaml` (as for a corpus) and apply only where your policy keeps Interlock's default. Without a judge, injected tool results get a warning rather than being withheld; the scenarios say so. In the GitHub Action, set `redteam: "true"` (and optionally `redteam-scenarios: <dir>`).
 
 ## 4. Harnesses
 
