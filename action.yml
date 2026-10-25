@@ -19,6 +19,12 @@ inputs:
   corpus:
     description: Extra corpus directory of your own cases (optional)
     default: ""
+  redteam:
+    description: Run `interlock redteam` against the repository's policy, replaying the built-in attack packs and the evaluation corpus; fails the job when an attack gets through (optional)
+    default: "false"
+  redteam-scenarios:
+    description: Extra directory of your own red-team scenarios (optional, with redteam)
+    default: ""
   version:
     description: Interlock version to install from PyPI (empty = the version of this action)
     default: ""
@@ -54,4 +60,13 @@ runs:
         export HOME="$(mktemp -d)"
         args=(test --policy --workspace "$GITHUB_WORKSPACE")
         [ -n "${{ inputs.corpus }}" ] && args+=(--corpus "${{ inputs.corpus }}")
+        interlock "${args[@]}"
+    - name: Red-team the policy
+      if: inputs.redteam == 'true'
+      shell: bash
+      run: |
+        export HOME="$(mktemp -d)"
+        args=(redteam --policy --workspace "$GITHUB_WORKSPACE")
+        [ -d "${{ github.action_path }}/corpus/archetypes" ] && args+=(--corpus "${{ github.action_path }}/corpus/archetypes")
+        [ -n "${{ inputs.redteam-scenarios }}" ] && args+=(--corpus "${{ inputs.redteam-scenarios }}")
         interlock "${args[@]}"

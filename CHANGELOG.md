@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `interlock redteam`: replays attack scenarios through the deterministic pipeline and a policy (Interlock's default, or yours with `--policy`) and reports what gets through, exiting 1 on a regression. Built-in packs for injection through tool results, exfiltration, persistence, supply chain and MCP poisoning (multi-step scenarios share a session, so flow rules apply), plus the attack cases of `corpus/archetypes`; judge-dependent scenarios are reported as skipped, known gaps are listed without failing. An optional `redteam` step in the GitHub Action. The MCP gateway's tool screening is now one function (`mcp_proxy.screen_tool`) used by the gateway and the red-team replay.
+
 ## 0.1.7 (2026-10-25)
 
 - Plugin API (still version 1, additive): `compose_policies(docs)` returns one policy document that tightens a policy as applying the documents one after another would, for layering policies centrally (a baseline plus group policies) into the one managed policy a machine applies; `tighten_policy(base, data)` and `lint_policy(policy)` expose the tighten-only merge and `policy lint`. A property test checks `compose` against applying the layers in order on random policies. One documented exception: `trust.allowed_git_remotes` is narrowed left to right, never looser than the machine's own list.
