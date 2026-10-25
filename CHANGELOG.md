@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- **Fix:** `persistence.agent_config_write` no longer refuses every file of a Claude Code agent worktree (`<repo>/.claude/worktrees/<name>/...`) because its path contains `/.claude/`. A worktree is treated as a checkout of its own: its source files are workspace files, while its own `.claude/`, `.kiro/`, `.codex/`, `.interlock/`, the parent `.claude/` (settings, hooks, commands, agents) and the user's `~/.claude/` stay protected, after normalizing `..`, without case, and following symlinks. Adding `.claude/worktrees/**` to `trust.protected_paths` restores the old behaviour.
+- **Fix:** writes to agent configuration through the shell that were missed are now caught by the same rule: `>|`, `tee` with flags or several files, `dd of=`, `truncate`, `perl -i` / `ruby -i`, `awk -i inplace`, a local `rsync` destination, and interpreter one-liners and heredocs (`python3 -c "open('.claude/settings.json','w')..."`, `node -e "fs.writeFileSync(...)"`, Ruby, Perl, PHP) that write a literal path. Reads and mere mentions of the path are not flagged.
+
 ## 0.1.7 (2026-10-25)
 
 - Plugin API (still version 1, additive): `compose_policies(docs)` returns one policy document that tightens a policy as applying the documents one after another would, for layering policies centrally (a baseline plus group policies) into the one managed policy a machine applies; `tighten_policy(base, data)` and `lint_policy(policy)` expose the tighten-only merge and `policy lint`. A property test checks `compose` against applying the layers in order on random policies. One documented exception: `trust.allowed_git_remotes` is narrowed left to right, never looser than the machine's own list.
