@@ -171,6 +171,8 @@ class Policy(Strict):
     denial_budget: DenialBudget = Field(default_factory=DenialBudget)
     judge: Judge = Field(default_factory=Judge)
     tests: TestThresholds = Field(default_factory=TestThresholds)
+    # argument rewrites offered instead of a refusal, opt-in (det/rewrite.py); only your own policy can turn them on
+    rewrites: list[Literal["git.force_with_lease"]] = Field(default_factory=list)
     fail_mode: dict[str, str] = Field(default_factory=lambda: {
         "security.data_exfiltration": "closed", "security.malicious_command": "closed", "security.persistence": "closed",
         "security.secret_leak.*": "closed", "security.privilege_escalation": "closed", "default": "open",

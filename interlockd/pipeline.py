@@ -209,6 +209,21 @@ class Daemon:
             disp = "warn"
         return disp, findings, rows, unjudged, scores
 
+    def _rewrite(self, event, pol):
+        """(changed arguments, reason, finding) when an enabled rewrite applies and the harness can apply it, else None."""
+        from .det.rewrite import propose
+        from .models import Finding
+        from .render import REWRITE_HARNESSES
+
+        if not event.capabilities.rewrite or not event.capabilities.ask or event.adapter.name not in REWRITE_HARNESSES:
+            return None
+        prop = propose(event, list(pol.rewrites))
+        if prop is None:
+            return None
+        changed, why = prop
+        return changed, why, Finding(category="x.interlock.rewrite", severity="low", detector="interlock.rewrite",
+                                     path="tool_call.arguments", subject=why)
+
     def _probe_read_from_disk(self, event, pol, session):
         """Pre-action, PROBE_READS_FROM_DISK only: run the injection probe on the file the agent is about to read.
         Returns (disposition, reason, notice, findings) when the file reads as injected, else None. Sensitive paths are
@@ -343,6 +358,7 @@ class Daemon:
         det = None
         answers_rows: list = []
         guard_scores: dict = {}
+        updated_arguments = None
         if event.kind == "post_action":
             det = det_evaluate(event, pol, tier)
             composed = compose(det, evaluate_mandate(pol, det, agent_id="", workspace="", session_counters={}), pol,
@@ -394,6 +410,11 @@ class Daemon:
                 answers_rows = answers_rows + rows
                 if disposition == "allow":
                     notice = None
+            if pol.rewrites and disposition != "block":
+                rewrite = self._rewrite(event, pol)
+                if rewrite is not None:
+                    updated_arguments, why, finding = rewrite
+                    disposition, reason, notice, findings = "ask", why, None, [*findings, finding]
 
         verdict = Verdict(
             event_id=event_id,
@@ -402,6 +423,7 @@ class Daemon:
             notice=notice,
             findings=findings,
             mode=mode,  # type: ignore[arg-type]
+            updated_arguments=updated_arguments,
             tier=tier.tier,
             action_class=action_class,
             unjudged=unjudged,
