@@ -188,3 +188,20 @@ def test_remove_hook_groups_finds_windows_paths(tmp_path):
     f.write_text(json.dumps({"version": 1, "hooks": {"preToolUse": [{"command": cmd}, {"command": "mine"}]}}), encoding="utf-8")
     assert remove_hook_groups(f, marker)
     assert json.loads(f.read_text(encoding="utf-8"))["hooks"] == {"preToolUse": [{"command": "mine"}]}
+
+
+def test_token_rotate_and_mode_switch_restart_only_this_homes_daemon(sandbox, monkeypatch):
+    """A daemon answering on the port that isn't this home's (another INTERLOCK_HOME, or the developer's own daemon
+    while tests run) is never restarted: that leaked launchd jobs running sandbox daemons on the real port."""
+    from interlockd.service import ServiceManager
+
+    restarts = []
+    monkeypatch.setattr(ServiceManager, "healthy", lambda self, timeout=1.0: True)        # someone answers on 7391
+    monkeypatch.setattr(ServiceManager, "restart", lambda self: restarts.append(self.home))
+    monkeypatch.setattr(ServiceManager, "wait_healthy", lambda self, seconds=8.0: True)
+    assert main(["init", "--yes", "--no-service"]) == 0
+    assert main(["token", "--rotate"]) == 0 and main(["enforce"]) == 0 and main(["shadow"]) == 0
+    assert restarts == []                                             # no daemon.json here: not ours
+    (sandbox / ".interlock" / "daemon.json").write_text(json.dumps({"pid": os.getpid()}), encoding="utf-8")
+    assert main(["token", "--rotate"]) == 0 and main(["enforce"]) == 0
+    assert len(restarts) == 2                                          # this home's daemon is running: restart it

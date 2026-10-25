@@ -59,6 +59,27 @@ def daemon(settings: Settings) -> Daemon:
 
 
 @pytest.fixture(autouse=True)
+def _no_real_service_manager(monkeypatch):
+    """No test may drive the machine's real launchd / systemd / Windows Run key: a leaked job runs a sandbox daemon on
+    the developer's real port (it happened: token rotation restarted "its" service because the developer's own daemon
+    answered on 7391). Tests pass a fake runner, or use the process backend on a port of their own."""
+    from interlockd import service
+
+    real = service._run
+
+    read_only = {"print", "list", "status", "is-active", "is-enabled", "show", "query"}
+
+    def guarded(cmd):
+        tool = Path(cmd[0]).name if cmd else ""
+        if tool in ("launchctl", "systemctl", "reg", "reg.exe", "schtasks", "schtasks.exe"):
+            verb = next((c for c in cmd[1:] if not c.startswith("-")), "")
+            if verb not in read_only:
+                raise AssertionError(f"a test tried to run {' '.join(cmd[:3])} against the real service manager")
+        return real(cmd)
+    monkeypatch.setattr(service, "_run", guarded)
+
+
+@pytest.fixture(autouse=True)
 def _no_update_check(monkeypatch):
     """Tests never call PyPI, and never pick up a repository policy from wherever the suite is run."""
     monkeypatch.setenv("INTERLOCK_NO_UPDATE_CHECK", "1")

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- **Fix:** `interlock token --rotate`, `enforce` and `shadow` restart the daemon only when it is this home's (its `daemon.json` names a live process), not whichever daemon answers on the port; `stop` and `uninstall` call launchd / systemd only for this home's installed or loaded job. With two Interlock homes (or the test suite in a sandbox), rotating one home's token could restart, and register, a daemon for the other on the real port. The test suite now refuses any test that changes the real service manager.
 - Releases: build provenance covers exactly the wheel and the sdist (the 0.1.8 attestation also listed `dist/.gitignore`).
 
 ## 0.1.8 (2026-10-25)

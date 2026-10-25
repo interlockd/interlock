@@ -198,7 +198,7 @@ def cmd_token(args) -> int:
         rotate_token(s.token_path)
         print(f"token rotated: {s.token_path}")
         svc = _service(s)
-        if svc.healthy():
+        if svc.runs_here():
             svc.restart()
             print(f"daemon      restarted ({'running' if svc.wait_healthy() else 'not answering; run interlock doctor'})")
         return 0
@@ -1470,7 +1470,7 @@ def cmd_mode(args) -> int:
     if ws:
         print(f"warning     {ws} sets its own mode and wins in that workspace")
     svc = _service(s)
-    if svc.healthy():
+    if svc.runs_here():
         svc.restart()
         print(f"daemon      restarted ({'running' if svc.wait_healthy() else 'not answering; run interlock doctor'})")
     return 0
