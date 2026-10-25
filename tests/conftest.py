@@ -70,7 +70,9 @@ def _no_update_check(monkeypatch):
 POSIX_ONLY = {"test_shim_sh.py": "the POSIX sh shim", "test_unix_socket.py": "Unix sockets",
               "test_sandbox.py": "the OS sandbox is macOS/Linux"}
 # single tests that run the sh shim directly
-POSIX_ONLY_TESTS = {"test_shim_prints_daemon_json", "test_shim_per_harness", "test_shims"}
+POSIX_ONLY_TESTS = {"test_shim_prints_daemon_json", "test_shim_per_harness", "test_shims",
+                    "test_launchd_unit_and_sequence",          # launchd: macOS
+                    "test_status_without_judge"}               # the local judge: macOS/Linux
 
 
 def pytest_collection_modifyitems(config, items):

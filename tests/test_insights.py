@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -79,7 +80,8 @@ def test_doctor_flags_loose_token_and_bad_policy(sandbox):
     (il / "token").chmod(0o644)
     (il / "policy.yaml").write_text("mode: sideways\n", encoding="utf-8")
     c = _checks(sandbox)
-    assert not c["token"].ok and not c["policy"].ok
+    assert not c["policy"].ok
+    assert not c["token"].ok if os.name != "nt" else c["token"].warn      # Windows: modes aren't checked, said so
 
 
 def test_report_includes_gateway_interventions(tmp_path):

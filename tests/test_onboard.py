@@ -4,6 +4,7 @@ files and command sequences with a fake runner (no launchctl/systemctl is touche
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -52,7 +53,8 @@ def test_init_and_uninstall_round_trip(sandbox, capsys):
     settings = json.loads((sandbox / ".claude" / "settings.json").read_text(encoding="utf-8"))
     assert settings["model"] == "x" and "Stop" in settings["hooks"] and "PreToolUse" in settings["hooks"]
     assert "PreToolUse" in json.loads((sandbox / ".codex" / "hooks.json").read_text(encoding="utf-8"))["hooks"]
-    assert (il / "policy.yaml").read_text(encoding="utf-8") == STARTER_POLICY and (il / "token").stat().st_mode & 0o777 == 0o600
+    assert (il / "policy.yaml").read_text(encoding="utf-8") == STARTER_POLICY
+    assert os.name == "nt" or (il / "token").stat().st_mode & 0o777 == 0o600     # Windows: no POSIX modes
     man = Manifest.load(il)
     assert {h["harness"] for h in man.hooks} == {"claude-code", "codex"}
     # idempotent: a second init replaces our groups rather than duplicating them
@@ -173,7 +175,8 @@ def test_token_rotate(sandbox):
     before = (il / "token").read_text(encoding="utf-8")
     assert main(["token", "--rotate"]) == 0
     after = (il / "token").read_text(encoding="utf-8")
-    assert after != before and len(after.strip()) > 30 and (il / "token").stat().st_mode & 0o777 == 0o600
+    assert after != before and len(after.strip()) > 30
+    assert os.name == "nt" or (il / "token").stat().st_mode & 0o777 == 0o600
     assert not (il / "token.new").exists()
 
 
