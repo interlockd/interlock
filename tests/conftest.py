@@ -67,7 +67,8 @@ def _no_real_service_manager(monkeypatch):
 
     real = service._run
 
-    read_only = {"print", "list", "status", "is-active", "is-enabled", "show", "query"}
+    read_only = {"print", "list", "status", "is-active", "is-enabled", "is-system-running", "show", "show-environment",
+                 "query"}         # probes, e.g. systemd detection; nothing that starts, stops or registers a service
 
     def guarded(cmd):
         tool = Path(cmd[0]).name if cmd else ""
