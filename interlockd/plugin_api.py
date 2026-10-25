@@ -169,7 +169,9 @@ def hook_status(home: str | Path) -> list[dict[str, str]]:
 
 @dataclass(frozen=True)
 class Decision:
-    """The parts of one audit record a plugin may read. Tool arguments, results and messages are never exposed."""
+    """The parts of one audit record a plugin may read: metadata only. Tool arguments, results, file paths, the working
+    directory, transcripts, reason and notice texts (they can quote a command) and finding subjects are never exposed.
+    Fields after `selftest` were added in 0.1.8 (additive); records written by older versions leave them empty."""
     received_at: datetime
     kind: str                            # "pre_action", "post_action" or "control"
     disposition: str                     # "allow", "ask", "block", "warn", "withhold", ...
@@ -177,6 +179,22 @@ class Decision:
     judged: bool                         # routed to the judge (answered, or recorded unjudged)
     session_id: str
     selftest: bool                       # a `interlock selftest` probe, not real agent traffic
+    event_id: str = ""                   # the record's id: stable, for idempotent forwarding
+    agent: str = ""                      # the adapter that sent it: "claude-code", "codex", "strands", ...
+    action_class: str = ""               # normalized class: "shell", "git", "egress", "file_write", "mcp", ...
+    tier: int | None = None              # 0 read-only, 1 in-workspace, 2 gated
+    mode: str = ""                       # "shadow" or "enforce" when it was decided
+    tool_name: str = ""                  # e.g. "Bash", "Write", "mcp__github__create_pull_request" (names MCP servers)
+    finding_severities: tuple[str, ...] = ()   # severity per entry of `findings`, same order
+    policy_sha256: str = ""              # the effective policy's hash
+
+    def keyed_session(self, key: bytes) -> str:
+        """A stable pseudonym for `session_id` under `key` (HMAC-SHA256): groups one session's decisions without
+        revealing the agent's own session id. Same key, same session -> same value."""
+        import hashlib
+        import hmac
+
+        return "s_" + hmac.new(key, self.session_id.encode("utf-8"), hashlib.sha256).hexdigest()[:24]
 
 
 def _parse_ts(v: Any) -> datetime | None:
@@ -211,8 +229,16 @@ def decisions(spool: str | Path, since: datetime, until: datetime) -> Iterator[D
             ts = _parse_ts(rec.get("received_at"))
             if ts is None or not since <= ts < until:
                 continue
-            found = tuple((str(f.get("rule", "")), str(f.get("category", "")))
-                          for f in rec.get("findings") or [] if isinstance(f, dict))
+            fs = [f for f in rec.get("findings") or [] if isinstance(f, dict)]
+            found = tuple((str(f.get("rule", "")), str(f.get("category", ""))) for f in fs)
             sid = str(rec.get("session_id") or "")
+            norm = rec.get("normalized") if isinstance(rec.get("normalized"), dict) else {}
+            tier = rec.get("tier")
             yield Decision(ts, str(rec.get("kind") or ""), str(rec.get("disposition") or ""), found,
-                           bool(rec.get("answers") or rec.get("unjudged")), sid, sid.startswith("interlock-selftest"))
+                           bool(rec.get("answers") or rec.get("unjudged")), sid, sid.startswith("interlock-selftest"),
+                           event_id=str(rec.get("event_id") or ""), agent=str(rec.get("adapter") or ""),
+                           action_class=str(norm.get("action_class") or ""),
+                           tier=tier if isinstance(tier, int) and not isinstance(tier, bool) else None,
+                           mode=str(rec.get("mode") or ""), tool_name=str(rec.get("tool_name") or "")[:200],
+                           finding_severities=tuple(str(f.get("severity") or "") for f in fs),
+                           policy_sha256=str(rec.get("policy_sha256") or ""))
