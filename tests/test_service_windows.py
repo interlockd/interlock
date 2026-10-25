@@ -53,3 +53,26 @@ def test_one_entry_per_interlock_home(tmp_path):
     b = ServiceManager(tmp_path / "b", backend="winrun", run_key=reg)
     a.install(); b.install()
     assert len(reg.values) == 2 and a.label != b.label
+
+
+def test_stop_treats_a_process_that_is_already_exiting_as_stopped(tmp_path, monkeypatch):
+    """On Windows, terminating a process that is already exiting (the daemon once its venv launcher has gone) raises
+    PermissionError ("access is denied"); stop() must not fail on it (it flaked `interlock stop` on CI)."""
+    from interlockd import service
+
+    svc = ServiceManager(tmp_path / "ih", backend="process", python="python")
+    svc.pid_path.parent.mkdir(parents=True, exist_ok=True)
+    svc.pid_path.write_text("4242", encoding="utf-8")
+    alive = {"n": 0}
+
+    def fake_alive(pid):
+        alive["n"] += 1
+        return alive["n"] == 1                 # alive when checked, gone right after
+
+    def denied(pid, sig):
+        raise PermissionError(5, "Access is denied")
+    monkeypatch.setattr(ServiceManager, "_alive", staticmethod(fake_alive))
+    monkeypatch.setattr(service, "_win_is_python", lambda pid: True, raising=False)
+    monkeypatch.setattr(service.os, "kill", denied)
+    svc.stop()
+    assert not svc.pid_path.exists()

@@ -41,7 +41,14 @@ def withheld_output(tool_response: Any, notice: str) -> Any:
     return notice
 
 
-def render_claude_code(v: Verdict, *, kind: str, tool_response: Any = None, harness: str = "claude-code") -> dict[str, Any] | None:
+# Harnesses whose reply can carry changed tool arguments (a rewrite, det/rewrite.py). Claude Code: `updatedInput` in
+# PreToolUse's hookSpecificOutput, with permissionDecision "ask" so the user sees and confirms the changed call.
+# Written to the documented contract; not yet verified live. Others keep the original call and its disposition.
+REWRITE_HARNESSES = {"claude-code"}
+
+
+def render_claude_code(v: Verdict, *, kind: str, tool_response: Any = None, harness: str = "claude-code",
+                       tool_input: Any = None) -> dict[str, Any] | None:
     """Claude Code / Codex JSON for stdout. None means: print nothing, exit 0 (the harness decides on its own).
 
     Interlock never emits permissionDecision "allow": that would skip the harness's own permission prompt.
@@ -54,8 +61,11 @@ def render_claude_code(v: Verdict, *, kind: str, tool_response: Any = None, harn
                                            "permissionDecisionReason": v.notice or v.reason or "refused by Interlock policy"}}
         if v.disposition == "ask":
             reason = v.reason or "Interlock asks for confirmation"
-            return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "ask",
-                                           "permissionDecisionReason": f"[interlock] {reason}"}}
+            out = {"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "ask",
+                                          "permissionDecisionReason": f"[interlock] {reason}"}}
+            if v.updated_arguments and harness in REWRITE_HARNESSES and isinstance(tool_input, dict):
+                out["hookSpecificOutput"]["updatedInput"] = {**tool_input, **v.updated_arguments}   # the whole input
+            return out
         return None
     # post_action
     if v.disposition == "withhold" and harness == "codex":

@@ -1506,6 +1506,40 @@ def cmd_doctor(args) -> int:
     return rc
 
 
+def cmd_redteam(args) -> int:
+    """Replay attack scenarios through the deterministic pipeline; exit 1 when one gets through that shouldn't."""
+    from .policy import Policy
+    from .redteam import archetypes_dir, default_packs_dir, format_report, run_redteam, write_json
+
+    s = _settings(args)
+    label = "default policy"
+    if args.policy:
+        from .policy.managed import ManagedPolicy
+
+        ws = args.workspace or (s.workspace_roots[0] if s.workspace_roots else None)
+        policy, _ = ManagedPolicy(s.home).resolve(load_policy(ws, home=s.home))
+        label = "your policy" + (f" (workspace {ws})" if ws else "")
+    else:
+        policy = Policy()
+    dirs = [default_packs_dir()]
+    if not args.no_archetypes and archetypes_dir() is not None:
+        dirs.append(archetypes_dir())
+    dirs += [Path(d).expanduser().resolve() for d in (args.corpus or [])]
+    missing = [str(d) for d in dirs if not d.is_dir()]
+    if missing:
+        print(f"scenario directory not found: {', '.join(missing)}", file=sys.stderr)
+        return 2
+    report = run_redteam(dirs, policy, policy_label=label, only=args.only)
+    if not report.results:
+        print("no attack scenarios found", file=sys.stderr)
+        return 2
+    if args.json:
+        write_json(report, args.json)
+    if not args.quiet:
+        print(format_report(report, verbose=args.verbose))
+    return 1 if report.failed(strict=args.strict) else 0
+
+
 def cmd_scan(args) -> int:
     from .scan import SEVERITY_ORDER, format_scan, run_scan
 
@@ -2104,6 +2138,20 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--runtime", choices=["sh", "node", "py"], default=None,
                    help="shim runtime (default: sh on macOS/Linux, ~70 ms faster per call than node; py on Windows)")
     p.set_defaults(fn=cmd_install)
+
+    p = sub.add_parser("redteam", help="replay attack scenarios through the deterministic pipeline; report what gets through")
+    p.add_argument("--policy", action="store_true",
+                   help="replay against your layered live policy (~/.interlock, the workspace policy, the managed policy) "
+                        "instead of Interlock's defaults")
+    p.add_argument("--workspace", help="with --policy: the repository whose .interlock/policy.yaml to layer in (CI)")
+    p.add_argument("--corpus", action="append", help="extra directory of scenarios or attack cases (*.jsonl, repeatable)")
+    p.add_argument("--no-archetypes", action="store_true", help="leave out corpus/archetypes (only present in a source checkout)")
+    p.add_argument("--only", action="append", help="only this pack, or scenarios whose id starts with this (repeatable)")
+    p.add_argument("--strict", action="store_true", help="also fail when an attack is stopped more weakly than expected")
+    p.add_argument("--json", help="write the full report as JSON to this path")
+    p.add_argument("-v", "--verbose", action="store_true", help="also list skipped scenarios")
+    p.add_argument("--quiet", action="store_true", help="no table; only the exit code (and --json)")
+    p.set_defaults(fn=cmd_redteam)
 
     p = sub.add_parser("test", help="run the deterministic corpus and report FPR/FNR (CI gate)")
     p.add_argument("--corpus", action="append",

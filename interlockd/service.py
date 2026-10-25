@@ -233,7 +233,12 @@ WantedBy=default.target
         pids = [self._read_pid()] + ([self._daemon_json_pid()] if WINDOWS else [])
         for pid in dict.fromkeys(p for p in pids if p):
             if self._alive(pid) and (not WINDOWS or _win_is_python(pid)):
-                os.kill(pid, signal.SIGTERM)
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except (ProcessLookupError, PermissionError):
+                    # it exited meanwhile (on Windows, terminating a process that is already exiting, e.g. the
+                    # daemon once its venv launcher has gone, is "access denied"); wait below, as for a clean exit
+                    pass
                 for _ in range(30):
                     if not self._alive(pid):
                         break

@@ -43,6 +43,17 @@ def tool_fingerprint(tool: dict) -> str:
     return hashlib.sha256(json.dumps(material, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
+def screen_tool(tool: dict, changed: list[str]) -> str | None:
+    """Why a listed tool is hidden from the agent (a rug pull or a poisoned description), or None to keep it."""
+    if str(tool.get("name")) in changed:
+        return "definition changed since it was pinned (possible rug pull); review with `interlock mcp-pins`"
+    score, hits = heuristic_score(f"{tool.get('description') or ''}\n{json.dumps(tool.get('inputSchema') or {})}",
+                                  assume_addressed=True)
+    if score >= POISON_THRESHOLD:
+        return f"description reads as instructions to the model ({score:.2f}: {', '.join(hits)})"
+    return None
+
+
 class Pins:
     """~/.interlock/mcp-pins.json: {server: {tool: {sha256, pinned_at}}}. Trust on first use, then compare."""
 
@@ -227,13 +238,7 @@ class Proxy:
         keep = []
         for t in tools:
             name = str(t.get("name"))
-            score, hits = heuristic_score(f"{t.get('description') or ''}\n{json.dumps(t.get('inputSchema') or {})}",
-                                          assume_addressed=True)
-            reason = None
-            if name in changed:
-                reason = "definition changed since it was pinned (possible rug pull); review with `interlock mcp-pins`"
-            elif score >= POISON_THRESHOLD:
-                reason = f"description reads as instructions to the model ({score:.2f}: {', '.join(hits)})"
+            reason = screen_tool(t, changed)
             if reason:
                 self.log(f"{'hid' if enforce else 'would hide (shadow)'} tool {name}: {reason}")
                 if enforce:
