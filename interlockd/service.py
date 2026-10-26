@@ -86,13 +86,13 @@ class ServiceStatus:
 
 class ServiceManager:
     def __init__(self, home: Path, *, listen: str = "127.0.0.1:7391", backend: Backend | None = None,
-                 python: str | None = None, runner: Callable[[list[str]], subprocess.CompletedProcess] = _run,
+                 python: str | None = None, runner: Callable[[list[str]], subprocess.CompletedProcess] | None = None,
                  run_key: Any | None = None):
         self.home = Path(home).expanduser()
         self.listen = listen
         self.backend: Backend = backend or detect_backend()
         self.python = python or sys.executable
-        self._run = runner
+        self._run = runner or (lambda cmd: _run(cmd))      # resolved per call, so tests can guard the module's _run
         # one service per home, so a test or second install never collides with the default one
         suffix = "" if self.home.resolve() == DEFAULT_HOME.resolve() else "." + hashlib.sha256(
             str(self.home.resolve()).encode()).hexdigest()[:8]
@@ -217,14 +217,14 @@ WantedBy=default.target
             self.pid_path.write_text(str(p.pid), encoding="utf-8")
 
     def stop(self) -> None:
-        if self.backend == "launchd":
+        if self.backend == "launchd" and (self.unit_path.exists() or self._launchd_loaded()):   # this home's job only
             self._run(["launchctl", "bootout", f"gui/{os.getuid()}/{self.label}"])
             # bootout returns before the job is torn down; a bootstrap before then fails with EIO
             for _ in range(50):
                 if not self._launchd_loaded():
                     break
                 time.sleep(0.2)
-        elif self.backend == "systemd":
+        elif self.backend == "systemd" and self.unit_path.exists():
             self._run(["systemctl", "--user", "stop", self.unit])
         # Windows: a venv's python.exe is a launcher that runs the interpreter as a child, so the daemon's own pid
         # (daemon.json) is the one to stop. os.kill is TerminateProcess there (a detached process has no console for
@@ -261,7 +261,7 @@ WantedBy=default.target
         self.stop()
         if self.backend == "winrun":
             self.run_key.delete(self.label)
-        if self.backend == "systemd":
+        if self.backend == "systemd" and self.unit_path.exists():
             self._run(["systemctl", "--user", "disable", self.unit])
         if self.backend in ("launchd", "systemd") and self.unit_path.exists():
             self.unit_path.unlink()
@@ -276,6 +276,12 @@ WantedBy=default.target
         return ServiceStatus(self.backend, installed, self.healthy(), self._read_pid(), detail=detail)
 
     # ---- health
+    def runs_here(self) -> bool:
+        """True when the daemon answering on the port is this home's (its daemon.json names a live process), not just
+        any daemon: another INTERLOCK_HOME (or a test's sandbox) must never restart someone else's daemon."""
+        pid = self._daemon_json_pid()
+        return bool(pid) and self._alive(pid) and self.healthy()
+
     def healthy(self, timeout: float = 1.0) -> bool:
         host, _, port = self.listen.rpartition(":")
         try:
