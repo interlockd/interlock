@@ -70,6 +70,23 @@ def test_init_and_uninstall_round_trip(sandbox, capsys):
     assert not il.exists()
 
 
+def test_init_and_uninstall_are_recorded_operator_actions(sandbox):
+    """11.1, 11.4: each command records its Operator_Action in the audit chain; uninstall leaves a Stop_Marker
+    without expiry, so a shim that still runs reads the outage as operator_stopped."""
+    from interlockd.lifecycle import read_stop_marker
+    from interlockd.store.spool import Spool
+
+    il = sandbox / ".interlock"
+    assert main(["init", "--yes", "--no-service"]) == 0
+    assert main(["uninstall", "--yes"]) == 0
+    spool = Spool(il / "spool")
+    actions = [r["arguments"]["action"] for r in spool.iter_records(reverse=False)
+               if r.get("kind") == "control" and r["arguments"].get("record") == "operator_action"]
+    assert actions == ["init", "uninstall"] and spool.verify()["ok"]
+    marker = read_stop_marker(il)
+    assert marker["action"] == "uninstall" and "expires_epoch" not in marker
+
+
 def test_init_respects_harness_subset_and_enforce(sandbox):
     assert main(["init", "--yes", "--no-service", "--harness", "codex", "--enforce"]) == 0
     assert "PreToolUse" not in json.loads((sandbox / ".claude" / "settings.json").read_text(encoding="utf-8"))["hooks"]

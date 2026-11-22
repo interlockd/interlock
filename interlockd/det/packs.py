@@ -59,6 +59,7 @@ R_PERSIST_AGENT_CONFIG = rule("persistence.agent_config_write", "security.persis
 R_PERSIST_CI = rule("persistence.ci_workflow_write", "security.persistence", "medium", "ask")
 R_PERSIST_SUDOERS = rule("persistence.sudoers_or_system", "security.privilege_escalation", "critical", "block")
 R_PERSIST_TRANSCRIPT = rule("persistence.transcript_write", "security.memory_poisoning", "high", "ask")
+R_INTERLOCK_CONTROL = rule("persistence.interlock_control", "security.persistence", "high", "ask")
 
 R_SECRET_IN_ARGS = rule("secrets.literal_in_arguments", "security.secret_leak", "high", "ask")
 R_SECRET_READ = rule("secrets.read_sensitive_path", "security.secret_leak", "medium", "model")
@@ -415,9 +416,104 @@ def _shell_write_targets(cmd: str, w: list[str]) -> list[str]:
     return []
 
 
+# Interlock's own controls. These subcommands turn protection off, undo a pause, or accept a tamper finding: run
+# through an agent's tool call they are the user's decision, so they ask. `enforce`, `pause` and `init` only tighten or
+# reinstall and stay ungated. normalized["interlock_control"] carries the command-line spelling ("token --rotate");
+# operator.correlate_hook_session matches it against the operator action the CLI records.
+CONTROL_SUBCOMMANDS = frozenset({"ack", "shadow", "stop", "restart", "uninstall", "policy accept", "policy revert",
+                                 "token --rotate", "resume"})
+_INTERLOCK_PROGRAMS = {"interlock", "interlock.exe"}
+_INTERLOCK_MODULES = {"interlockd", "interlockd.cli", "interlockd.__main__"}
+_PYTHON = re.compile(r"^python(?:\d+(?:\.\d+)*)?(?:\.exe)?$")
+# programs that run the program after them (their own options and words skipped): sudo, timeout, Python tool runners
+_LAUNCHERS = {"sudo", "doas", "timeout", "uvx", "pipx", "uv", "poetry", "pdm", "hatch", "rye"}
+_LAUNCHER_WORDS = {"run", "tool", "exec"}
+_LAUNCHER_VALUE_OPTS = {"-u", "--user", "-g", "--group", "-p", "--python", "--from", "--with", "--spec", "-s", "--signal",
+                        "-k", "--kill-after", "--env-file", "--directory", "--project"}
+_DURATION = re.compile(r"^\d+(?:\.\d+)?[smhd]?$")
+_PY_VALUE_OPTS = {"-W", "-X"}
+
+
+def _opt_is(word: str, name: str, min_len: int) -> bool:
+    """argparse accepts unambiguous prefixes of long options (`--rot` for `--rotate`)."""
+    return len(word) >= min_len and name.startswith(word)
+
+
+def _interlock_args(words: list[str]) -> list[str] | None:
+    """The arguments after `interlock` (or `python -m interlockd`) when this segment runs the Interlock CLI, else None."""
+    i = 0
+    while i < len(words) and os.path.basename(words[i]).lower() in _LAUNCHERS:
+        i += 1
+        while i < len(words):
+            x = words[i]
+            if x in _LAUNCHER_VALUE_OPTS:
+                i += 2
+            elif x.startswith("-") or x in _LAUNCHER_WORDS or _DURATION.match(x):
+                i += 1
+            else:
+                break
+    w = words[i:]
+    if not w:
+        return None
+    prog = os.path.basename(w[0]).split("@", 1)[0].lower()     # uvx interlock@0.2.0
+    if prog in _INTERLOCK_PROGRAMS:
+        return w[1:]
+    if _PYTHON.match(prog):
+        j = 1
+        while j < len(w) and w[j].startswith("-"):
+            x = w[j]
+            if x == "-m":
+                return w[j + 2:] if j + 1 < len(w) and w[j + 1] in _INTERLOCK_MODULES else None
+            if x.startswith("-m"):
+                return w[j + 1:] if x[2:] in _INTERLOCK_MODULES else None
+            if x in ("-c", "-"):
+                return None
+            j += 2 if x in _PY_VALUE_OPTS else 1
+    return None
+
+
+def _control_subcommand(args: list[str]) -> str | None:
+    """The CONTROL_SUBCOMMANDS entry these CLI arguments run, or None (read-only commands, --help)."""
+    i = 0
+    while i < len(args) and args[i].startswith("-"):
+        if args[i] in ("-h", "--help", "--version"):
+            return None
+        i += 2 if _opt_is(args[i], "--home", 4) else 1      # --home DIR; --home=DIR is one word
+    if i >= len(args):
+        return None
+    sub, rest = args[i], args[i + 1:]
+    if any(x in ("-h", "--help") for x in rest):
+        return None
+    if sub == "policy":
+        j, action = 0, ""
+        while j < len(rest):
+            if rest[j].startswith("-"):
+                j += 2 if _opt_is(rest[j], "--workspace", 3) else 1      # --workspace DIR
+                continue
+            action = rest[j]
+            break
+        name = f"policy {action}"
+    elif sub == "token":
+        name = "token --rotate" if any(_opt_is(x, "--rotate", 3) for x in rest) else ""
+    else:
+        name = sub
+    return name if name in CONTROL_SUBCOMMANDS else None
+
+
+def check_interlock_control(parsed: Parsed, res: DetResult, policy: Policy) -> None:
+    for seg in parsed.all_segments():
+        args = _interlock_args(seg.words)
+        name = _control_subcommand(args) if args is not None else None
+        if name is None:
+            continue
+        res.normalized.setdefault("interlock_control", name)
+        res.add(policy, R_INTERLOCK_CONTROL, path=PATH_ARG, subject=seg.raw[:120])
+
+
 def check_persistence_shell(parsed: Parsed, res: DetResult, policy: Policy, cwd: str | None) -> None:
     roots = policy.trust.workspace_roots or ([cwd] if cwd else [])
     raw = parsed.code
+    check_interlock_control(parsed, res, policy)
     targets: dict[str, None] = {}                       # written files, each checked once
     # redirections (>, >>, >| noclobber override) and tee targets
     for m in re.finditer(r"(?:>>?\|?|\btee\s+(?:-a\s+)?)\s*(['\"]?)([^\s'\"|;&()]+)\1", raw):

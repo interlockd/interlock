@@ -9,7 +9,9 @@ It spawns the real server and relays newline-delimited JSON-RPC both ways, inter
                       poisoning) is dropped from the list in enforce mode and logged in shadow mode
   tools/call request  decided by the daemon like any other tool call; a refusal is answered as a JSON-RPC result
                       with isError and never reaches the server
-  tools/call result   run through the post-action probe; a withhold replaces the content with the notice
+  tools/call result   run through the post-action probe; a withhold replaces the content with the notice; while a
+                      harness's enforcement point is compromised the daemon's tamper notice is appended as a text
+                      block (the request itself is refused in enforce mode like any other block)
 
 Everything else passes through untouched. When the daemon does not answer, the local fail mode applies.
 Unlike `interlock mcp` (advisory), this is an enforcement point: the agent only sees the server through it.
@@ -33,8 +35,27 @@ from typing import Any, TextIO
 from . import __version__
 from .config import Settings
 from .judges.local_probe import heuristic_score
+from .render import tamper_notice_in
 
 POISON_THRESHOLD = 0.6
+
+
+def annotate_result(msg: dict, notices: list[str]) -> dict:
+    """Append each compromised-enforcement-point notice to a tools/call result as a text content block, the
+    message channel the MCP result contract has (Requirement 6.9). A notice a content block already carries (a
+    withheld result's replacement text) is not repeated; a result without notices is returned unchanged."""
+    result = msg.get("result")
+    if not notices or not isinstance(result, dict):
+        return msg
+    content = list(result.get("content") or [])
+    texts = [str(c.get("text", "")) for c in content if isinstance(c, dict)]
+    added = False
+    for n in dict.fromkeys(notices):
+        if not any(n in t for t in texts):
+            content.append({"type": "text", "text": n})
+            texts.append(n)
+            added = True
+    return {**msg, "result": {**result, "content": content}} if added else msg
 
 
 def tool_fingerprint(tool: dict) -> str:
@@ -209,10 +230,15 @@ class Proxy:
                              "this machine fails closed.")
             return None
         if v and v.get("mode") == "enforce" and v.get("disposition") in ("block", "ask"):
+            # a compromised enforcement point arrives here as an ordinary block with the tamper notice (6.8)
             self.log(f"blocked tools/call {tool}: {v.get('reason')}")
             self.refuse(mid, v.get("notice") or f"[interlock] refused: {v.get('reason')}")
             return None
         self.pending[mid] = {"method": method, "tool": tool, "arguments": args}
+        # shadow mode: a tools/call request carries no message, so the tamper notice rides on its result (6.9)
+        notice = tamper_notice_in(v.get("notice")) if v else None
+        if notice:
+            self.pending[mid]["tamper_notice"] = notice
         return msg
 
     def refuse(self, mid: Any, text: str) -> None:
@@ -254,9 +280,12 @@ class Proxy:
         sc = msg["result"].get("structuredContent")
         if sc is not None:
             text += "\n" + json.dumps(sc)
-        if not text.strip():
-            return msg
-        v = self.decide("post_action", req["tool"], req["arguments"], content=text)
+        v = self.decide("post_action", req["tool"], req["arguments"], content=text) if text.strip() else None
+        out = self._apply_post(msg, req, v, content)
+        notices = [n for n in (req.get("tamper_notice"), tamper_notice_in(v.get("notice")) if v else None) if n]
+        return annotate_result(out, notices)
+
+    def _apply_post(self, msg: dict, req: dict, v: dict | None, content: list) -> dict:
         if v and v.get("mode") == "enforce" and v.get("disposition") == "withhold":
             self.log(f"withheld result of {req['tool']}: {v.get('reason')}")
             result = {k: val for k, val in msg["result"].items() if k not in ("content", "structuredContent")}

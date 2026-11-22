@@ -18,7 +18,7 @@ This guide covers what Interlock does today and how to run it. It grows with the
 
 **Records everything.** Every decision is written to a local spool the moment it is made (durable before the verdict is returned), then drained in the background to DynamoDB. The record carries the tool call, the findings, the disposition, the policy hash, timing, and the session and turn it belonged to, so any verdict can be explained and replayed later.
 
-**Fails the way you choose.** If the daemon is unreachable, each harness hook applies a local fail mode: `open` (the tool runs, the miss is logged to `~/.interlock/hook.log`) or `closed` (the tool is refused until the daemon is back). The default is open. Without the daemon the hook cannot classify the call, so it applies the `default` entry of the fail-mode table; set `default: closed` to refuse every tool call while the daemon is down. The per-category entries are reserved for a future local classifier and have no effect today.
+**Fails the way you choose.** If the daemon cannot judge a call, each harness hook applies a local fail mode: `open` (the tool runs, the miss is logged to `~/.interlock/hook.log`) or `closed` (the tool is refused). There are two of them. `fail_mode.default` (open unless you change it) covers explained outages: you ran `interlock stop`, a restart is in progress, or the daemon answered with an error. `fail_mode.tamper` (closed unless you change it) covers the cases where Interlock's own protection can't be trusted: the daemon rejected the hook's token, the process that answered is not this home's daemon, or the daemon disappeared without `interlock stop`. See §2.2. Set `default: closed` to refuse every tool call while the daemon is down for any reason. The per-category entries of the fail-mode table are reserved for a future local classifier and have no effect today.
 
 ### How a decision is made
 
@@ -45,7 +45,7 @@ interlock log -f                # watch decisions live
 
 `init` prints every change before making it and asks once (`--yes` skips the prompt). It:
 
-- creates `~/.interlock/` with a per-install bearer token (mode 0600; hooks send it and the daemon requires it, even on loopback), the fail-mode table the hooks use when the daemon is down, and a commented starter policy in **shadow** mode;
+- creates `~/.interlock/` with a per-install bearer token (mode 0600; hooks send it and the daemon requires it, even on loopback), the fail-mode table the hooks use when the daemon is down, a commented starter policy in **shadow** mode, and the integrity baseline that pins the shims it installs, the token and the policy (§2.2);
 - adds Interlock's hooks to every supported agent it finds: user-level for Claude Code (`~/.claude/settings.json`), Codex (`~/.codex/hooks.json`), Cursor (`~/.cursor/hooks.json`), Gemini CLI (`~/.gemini/settings.json`), GitHub Copilot CLI (`~/.copilot/hooks/interlock.json`), Windsurf (`~/.codeium/windsurf/hooks.json`), and Antigravity CLI (`~/.gemini/config/hooks.json`), and the Kiro workspace you run it from (`.kiro/hooks/interlock.json`). Your existing hooks and settings are preserved;
 - installs and starts a background service: launchd on macOS, a systemd user unit on Linux, the per-user Run key on Windows, or a detached process elsewhere (`--backend`), logging to `~/.interlock/interlockd.log`;
 - shows what the gate would decide for a few sample commands, without running them.
@@ -117,6 +117,100 @@ Hooks see the tool calls an agent makes; the MCP gateway sees every MCP server t
 
 Log: `~/.interlock/mcp-proxy.log`. Pins: `~/.interlock/mcp-pins.json`; after reviewing a legitimate change, `interlock mcp-pins --accept <server>`. Covered automatically: Claude Code (user scope via `claude mcp`, project `.mcp.json`), Claude Desktop, Cursor, VS Code, Kiro, Gemini CLI, Windsurf. Codex: `~/.codex/config.toml` is edited by rewriting only `command` and `args` in each `[mcp_servers.<name>]` table, and the result is re-parsed and compared before anything is written (inline-table entries are reported, not touched; unwrap restores the values, though those two lines may be laid out differently). Remote (Streamable HTTP) servers go through the daemon itself: `wrap` changes their `url` to `http://127.0.0.1:7391/mcp/<name>/<secret>` and records the real URL in `~/.interlock/gateway-routes.json` (mode 0600); the path secret stands in for the daemon token because the agent's own `Authorization` header is passed to the real server. The same pins, tool hiding, call decisions, and result checks apply to JSON and streaming (SSE) responses. While the daemon is down, wrapped remote servers are unreachable (fail closed). Remote servers in Codex's TOML are reported for manual setup. Restart your agents after wrapping.
 
+### 2.2 Tamper detection and protection state
+
+The gate works only while the hooks, the shims, the token, the policy and the daemon are the ones `interlock init` installed. The daemon checks each of them, and each shim checks the daemon. A change that no `interlock` command explains is recorded as a `control` record in the hash-chained audit log (once per distinct observed change), and it either refuses the agent's calls or is reported, as below.
+
+**What is checked.**
+
+| What | When | On an unexplained change |
+|---|---|---|
+| The calling agent's shim and its hook config entry | on every hook request, before the verdict, and every 10 s by the hook watch. A file is re-read and hashed only when its size, mtime or inode changed | The agent becomes `compromised` with `shim_modified`, `shim_missing`, `hook_removed`, or `shim_relocated` (the shim that ran is not the installed one; symlinks are resolved before comparing). A modified shim is rewritten from the installed package, and the reason stays until you clear it. A hook config is never edited: changing an agent's settings without you is what Interlock refuses |
+| `~/.interlock/token` | every 10 s | `token_permissions`: group and other access is removed again (on Windows the ACL is reset to you, SYSTEM and Administrators). `token_modified` / `token_missing`: the daemon keeps accepting the token it loaded and never writes a new one |
+| `~/.interlock/policy.yaml` and `managed-policy.yaml` | at start and every 10 s | `policy_modified` / `managed_policy_modified`: the daemon keeps enforcing the pinned copy and applies nothing from the changed file (see "Changing the policy" below) |
+| `~/.interlock/identity` | every 10 s | `identity_missing`: the daemon writes it again |
+| The daemon | by each shim, on every call | the call is refused or logged as below |
+
+The 10 s pass always runs. With the optional `watch` extra (`pipx install 'interlockd[watch]'`) and `INTERLOCK_WATCH=watchfiles` in the daemon's environment, a file change also wakes the pass early.
+
+**Protection state.** Each agent, and the home as a whole, is `protected`, `observing` (shadow mode), `stopped` (you ran `interlock stop` or `uninstall`) or `compromised` (at least one unresolved reason). The state is kept in `~/.interlock/protection-state.json`, so a restart does not clear it. `interlock status` prints it on its first line and exits 1 when it is `compromised`:
+
+```
+protection  compromised
+  claude-code  shim_modified            since <time>   → `interlock doctor`, then `interlock init` to repair or `interlock ack` to accept the change
+```
+
+With the daemon down, the first line is `protection  stopped` when a stop marker explains it and `protection  compromised daemon_unreachable` when nothing does. A process answering on the daemon's address without this home's identity gives `protection  compromised daemon_identity`. For a changed policy, `status` also prints the pinned and on-disk digests and the top-level keys that changed. `interlock doctor` lists the same reasons, the tamper events since the last `interlock ack` (the latest 50, with the total), whether the baseline covers every installed agent, `fail_mode.tamper`, whether `~/.interlock/identity` matches the running daemon, and tamper lines in `hook.log` from the last day. `GET /interlock/v1/health` carries the same state under `protection`.
+
+**What the agent sees.** While an agent's own shim or hook is `compromised`, the daemon in enforce mode blocks every pre-tool call from that agent, including calls through the MCP gateway, with this notice (shown at most once per agent and reason per 60 s; the block is returned every time):
+
+```
+[interlock] Protection for claude-code is compromised (shim_modified, enforcement_point). This action was NOT executed. Tell the user. To repair, the user runs `interlock doctor`, then `interlock init` to reinstall the hook or `interlock ack` to accept the change.
+```
+
+In shadow mode the verdict is unchanged and the notice reaches the agent only on Claude Code (as `additionalContext`). Home-level reasons (token, policy, identity, state file) do not block calls: the daemon keeps gating with the token and policy it pinned, and `status`, `doctor` and the health endpoint report them. To also get an OS notification when something becomes `compromised` (macOS, Linux with `notify-send`, Windows), set:
+
+```yaml
+notify:
+  desktop: true        # default false; one notification per agent (or the home) entering `compromised`
+```
+
+**What the hook does when it can't trust the reply.** Each shim classifies a call it cannot get a verdict for:
+
+| Cause | When | Fail mode |
+|---|---|---|
+| `operator_stopped` | the daemon is unreachable and `~/.interlock/stop-marker.json` was left by `interlock stop` or `uninstall` (no expiry) | `fail_mode.default` |
+| `restarting` | the daemon is unreachable and the marker left by `restart`, `shadow`, `enforce`, `token --rotate` or `init` has not expired (120 s) | `fail_mode.default` |
+| `daemon_lost` | the daemon is unreachable (no `daemon.json`, connection refused, or timeout) with no marker, an expired one, or one that doesn't parse | `fail_mode.tamper` |
+| `token_rejected` | the process on the daemon's address answered 401 or 403 | `fail_mode.tamper` |
+| `daemon_identity` | the reply has no `X-Interlock-Identity` header, more than one, or one that differs from `~/.interlock/identity` | `fail_mode.tamper` |
+
+Any other HTTP error keeps using `fail_mode.default`. With `fail_mode.tamper: closed` (the default), a pre-tool call is refused through the agent's normal block channel with one of these messages:
+
+```
+[interlock] This action was NOT executed: the process at <addr> rejected this hook's token (token_rejected). Run `interlock doctor`.
+[interlock] This action was NOT executed: the process answering at <addr> is not this home's Interlock daemon (daemon_identity). Run `interlock doctor`.
+[interlock] This action was NOT executed: Interlock daemon stopped unexpectedly (daemon_lost). Home: <home>. Run `interlock doctor`, then `interlock start`.
+```
+
+With `fail_mode.tamper: open`, and on every post-tool call, the shim only logs the line (`<time> tamper <cause> harness=... tool=... kind=... addr=... status=... fail_mode=...`, never arguments, the token or the identity) and gives no opinion. The exact output per agent is in `adapters/README.md` and each `adapters/<agent>/PAYLOADS.md`. At its next start the daemon removes the stop marker, records `control.daemon_unexpected_exit` when the previous run neither exited cleanly nor left a marker, and records one `control.calls_unjudged` summary of the `unjudged` and `tamper` lines `hook.log` gained in the gap.
+
+`INTERLOCK_FAIL_MODE=closed` in an agent's environment forces both fail modes to `closed`. No other value is honoured: `INTERLOCK_FAIL_MODE=open` no longer loosens either one.
+
+**Changing the policy.** The daemon pins `~/.interlock/policy.yaml` (its sha256 in `~/.interlock/integrity-baseline.json` and a byte-identical copy under `~/.interlock/pinned/`). These commands move the pin: `interlock shadow`, `interlock enforce`, `interlock init` when it writes the policy (a new install, or `--enforce`), `interlock policy accept`, `interlock policy revert` and `interlock ack`. Any other write is `policy_modified`: your editor, and also `interlock judge install` / `judge remove` or `interlock calibrate --write-bands` pointed at this file. After such an edit:
+
+```sh
+interlock policy diff      # unified diff of the pinned copy against the file, plus the top-level keys that changed
+interlock policy accept    # pin the file on disk (refused when it doesn't load); then `interlock restart` to apply it
+interlock policy revert    # save the file as policy.yaml.<date>.rejected and restore the pinned copy byte for byte
+```
+
+`policy diff` changes nothing and exits 0 when the file matches its pin, 1 when it differs or there is no pinned copy. `policy revert` exits 1 without touching the file when there is no pinned copy. Putting the file back to its pinned bytes clears `policy_modified` too. If the daemon starts with a changed policy and no usable pinned copy, it refuses every pre-tool call with reason `policy_modified` until you accept or revert. An agent's write to the policy that you approved in enforce mode (an `ask` you answered yes to, which needs `persistence.agent_config_write` softened to `ask`) is pinned as yours. The managed policy is pinned the same way; only the Console add-on's sync (or `interlock ack`) moves its pin. Repository policies (`<repo>/.interlock/policy.yaml`) are not pinned.
+
+**Clearing a reason.**
+
+| Reason | Cleared by |
+|---|---|
+| `shim_modified`, `shim_missing`, `shim_relocated`, `hook_removed` | `interlock init` (reinstalls the hooks and shims) or `interlock ack` |
+| `token_modified`, `token_missing`, `token_permissions` | `interlock token --rotate` or `interlock ack` |
+| `policy_modified` | `interlock policy accept` / `revert`, or `interlock ack` |
+| `managed_policy_modified` | the Console add-on's next sync, or `interlock ack` |
+| `identity_missing`, `state_unreadable` | `interlock ack` |
+
+`interlock ack [-y]` lists each unresolved reason with its agent (or `home`) and when it was first recorded, then every baseline entry that differs from what is on disk (policy and managed-policy digests with the changed keys, token content and mode, shim digests). Only `y` or `yes` proceeds; `-y` skips the question, and without a terminal it needs `-y`. It then records the acknowledgement, sets the baseline to what is on disk (re-pinning both policy files) and clears the reasons, through the daemon when it is running and in `protection-state.json` when it is not. With nothing unresolved, or when you answer no, it prints `nothing acknowledged`, changes nothing and exits 0. After acknowledging a token reason, run `interlock restart` so the daemon loads the token on disk. `interlock init` clears only the shim and hook reasons.
+
+**An agent can't switch protection off quietly.** The rule `persistence.interlock_control` (ask) fires when an agent runs `interlock ack`, `shadow`, `stop`, `restart`, `uninstall`, `policy accept`, `policy revert`, `token --rotate` or `resume` through its shell, also inside `&&` chains, subshells and `python -m interlockd`. What you approve is recorded as an operator action marked `via: hook_session`.
+
+**Checking it on your machine.** `interlock selftest` also sends one request with a wrong token in each installed agent's format and passes only when the daemon refuses it and records `control.token_rejected` for that agent within 5 s (the run is recorded as the operator action `selftest` first, so these rejections are not reported as tampering). `interlock selftest --shim` starts a stub on `127.0.0.1` that answers `allow` without the identity header and runs each installed shim against it; a shim passes when it refuses with `daemon_identity` and logs the `tamper daemon_identity` line, fails on anything else or after 10 s, and is `skipped` when `fail_mode.tamper` is `open`. `selftest` exits 0 only when every case passes or is skipped. `interlock bench --budget-ms 1` measures the HTTP path with and without the per-request check, prints `verify Δp95 ms`, and exits 1 when the check adds more than the budget.
+
+**Upgrading from 0.1.x.** A 0.1.x daemon sends no identity, and the new shims refuse every call from it with `daemon_identity`. Shims from 0.1.x keep working against the new daemon. So:
+
+1. Upgrade the package (`pipx upgrade interlockd`, `brew upgrade interlock`).
+2. Run `interlock restart` before your next agent session. The daemon's first start pins what is on disk (shims, token, policy) and flags nothing.
+3. Run `interlock init` to install the new shims. `init` itself restarts a running daemon of another version before it writes them.
+
+If a session already shows `daemon_identity` refusals, `interlock restart` fixes them. Two behaviour changes come with the upgrade: a rejected token or an unexplained daemon outage now refuses calls (`fail_mode: {tamper: open}` restores the old behaviour), and editing the policy file by hand now needs `interlock policy accept`.
+
 ### Daemon configuration (`~/.interlock/config.json`)
 
 ```json
@@ -135,9 +229,10 @@ Log: `~/.interlock/mcp-proxy.log`. Pins: `~/.interlock/mcp-pins.json`; after rev
 | Command | What it does |
 |---|---|
 | `interlock init [--yes] [--harness H,...] [--enforce] [--no-service] [--backend B]` | One-command setup (above). Idempotent. |
-| `interlock uninstall [--yes] [--purge]` | Remove hooks and the service; `--purge` also deletes `~/.interlock`. |
-| `interlock start \| stop \| restart \| status` | Manage the background daemon; `status` shows service, mode, policy, and hooks. |
-| `interlock enforce \| shadow` | Switch mode in `~/.interlock/policy.yaml` (comments kept) and restart the daemon. Warns if a workspace policy sets its own mode. |
+| `interlock uninstall [--yes] [--purge]` | Record the operator action, remove the hooks, write a stop marker without expiry, and remove the service, in that order, so none of it is reported as tampering; `--purge` also deletes `~/.interlock`. A step that fails is reported and the rest still run (exit 1). |
+| `interlock start \| stop \| restart \| status` | Manage the background daemon. `stop` and `restart` record the operator action and write `~/.interlock/stop-marker.json` before signalling the daemon (if the marker can't be written they exit 1 and leave the daemon alone), so the hooks treat the outage as expected (§2.2). `status` prints `protection  <state>` first, then service, mode, policy and hooks, and exits 1 when protection is `compromised`. |
+| `interlock enforce \| shadow` | Switch mode in `~/.interlock/policy.yaml` (comments kept), pin the result (§2.2) and restart the daemon. Warns if a workspace policy sets its own mode. |
+| `interlock ack [-y]` | Accept the unresolved tamper reasons after you have looked at them: lists them and the files that differ from the baseline, asks, then re-baselines from what is on disk and clears them (§2.2). |
 | `interlock report [--days N] [--json]` | What the gate decided: what enforce would have blocked or asked in shadow mode, what was enforced, top rules, recent stops, latency. |
 | `interlock redteam [--policy] [--workspace W] [--corpus DIR] [--only PACK] [--strict] [--json P]` | Replay attack scenarios through the deterministic pipeline and a policy and report what gets through; exits 1 on a regression (§3.4). |
 | `interlock scan [--project P] [--json] [--all] [--fail-on high\|medium\|low\|never]` | Static audit of the MCP servers and agent settings on this machine, and of the project's own agent configs, prompts and agent code (no daemon, no network, secret values never printed; repository checks below): unpinned `npx`/`uvx`/docker packages, plain-HTTP remotes, inline secrets, filesystem roots at `/` or `~`, inline shell servers, auto-approved tools, permission-bypass modes, agents Interlock is not protecting, and committed agent instruction files (AGENTS.md, CLAUDE.md, `.cursor/rules/`, ...) that carry injected instructions or invisible Unicode. Reads Claude Code, Claude Desktop, Codex, Cursor, VS Code, Kiro, Gemini CLI, and Windsurf configs. Exits 1 at or above `--fail-on` (default `high`), so it can gate CI. |
@@ -148,20 +243,22 @@ Log: `~/.interlock/mcp-proxy.log`. Pins: `~/.interlock/mcp-pins.json`; after rev
 | `interlock audit verify [--expect-head H] \| head` | The local log is hash-chained (each record carries `prev_hash` and `hash`). `verify` walks it and names the first edited, removed, reordered, or inserted record; `head` prints the newest hash so you can keep it elsewhere and later detect truncation with `--expect-head`. `doctor` runs `verify` too. |
 | `interlock aibom [-o FILE] [--project P]` | A CycloneDX 1.6 AI bill of materials: agents found, models named in their configs, each MCP server (with a package URL for npm / PyPI / container launches and whether the version is pinned), remote MCP endpoints as services, and tool-definition hashes pinned by the gateway. Env and header values are never included, only names. |
 | `interlock explain [event_id]` | Explain one decision in plain language (default: the most recent stop): what was attempted, the verdict, each rule and why it matters, what the agent was told, and the override snippet if it was a false positive. Event ids come from `interlock log` / `report`; a prefix is enough. |
-| `interlock selftest [--harness H,...]` | Prove the gate works end to end with the policy you actually run: sends attack shapes (force-push, curl \| bash, .env upload, shell-rc persistence, key read) and a benign control through the live daemon in each installed agent's own hook format, and reports the verdicts. Nothing is executed; in shadow mode it shows what enforce would do. Events are tagged and kept out of `report` and `explain`. `init` runs it once after starting the service. |
+| `interlock selftest [--harness H,...] [--shim]` | Prove the gate works end to end with the policy you actually run: sends attack shapes (force-push, curl \| bash, .env upload, shell-rc persistence, key read) and a benign control through the live daemon in each installed agent's own hook format, and reports the verdicts, plus one wrong-token request per agent that must be refused and recorded. `--shim` also runs each installed shim against a loopback stub that does not identify itself; each must refuse with `daemon_identity` (§2.2). Nothing is executed; in shadow mode it shows what enforce would do. Events are tagged and kept out of `report` and `explain`. Exits 0 only when every case passes or is skipped. `init` runs it once after starting the service. |
 | `interlock policy lint [--workspace P]` | With `--workspace`, also shows which parts of that repository's policy apply and which are not applied (tighten-only). Catches policy mistakes that fail silently: unknown rule ids in `packs.overrides` (with a did-you-mean), unknown packs, overrides that weaken or disable critical rules, catch-all remotes/hosts/MCP allows, toxic-flow detection off. Exits 1 on errors; `doctor` runs it. |
+| `interlock policy diff \| accept \| revert` | For a `policy_modified` finding (§2.2): `diff` shows the pinned copy against `~/.interlock/policy.yaml` (read-only; exit 1 when they differ), `accept` pins the file on disk, `revert` restores the pinned copy and keeps the rejected file as `policy.yaml.<date>.rejected`. |
 | `interlock replay [--days N] [--all]` | Re-decide your recorded tool calls with the policy as it is now and list what would change (newly stopped, newly allowed): the way to tune a rule against real history before it affects you. Deterministic: rules and mandate are re-evaluated, the judge is not re-asked, and session state starts fresh. |
 | `interlock pause [--agent A] [--minutes N] [--reason R]` / `interlock resume` | Kill switch: refuse every tool call from all agents (or the named agent types: `claude-code`, `codex`, `mcp-proxy`, `egress-proxy`, ...) until resumed or the time runs out. Enforced in any mode, through hooks, SDK integrations, the MCP gateway, and the egress proxy; takes effect on the next call. `status` and `doctor` show it. |
 | `interlock judge install\|status\|remove [--port N]` | Run the optional judge model locally: installs the `strands-decider` server in `~/.interlock/judge`, downloads the weights, adds `judge.primary` to your policy; the daemon starts it in the background after `interlock restart`. |
 | `interlock capture start\|stop\|report\|export [--harness A] [--scratch DIR]` | Record the real hook payloads an agent sends, to verify an adapter live and to make test fixtures; `report` says whether each block held; `export` redacts your home path, user name and emails. See `docs/ADAPTERS.md` §4. |
-| `interlock doctor` | Check protection is on (the daemon also re-checks hooks every minute and records removed hooks and modified shims in the audit log; `interlock report` lists them): daemon and version, token permissions, policy validity, hooks present in each agent, shims untampered, agents installed but unprotected, recent fail-open calls. Exits non-zero on a problem. |
+| `interlock doctor` | Check protection is on: the protection state and each unresolved reason with its repair command, tamper events since the last `interlock ack`, baseline coverage, `fail_mode.tamper` (a warning when `open`), the identity file, daemon and version, token permissions, policy validity, hooks present in each agent, shims untampered, agents installed but unprotected, recent fail-open and tamper lines in `hook.log`. Exits non-zero on a problem, including any `compromised` reason. |
+| `interlock bench [--rounds N] [--json P] [--budget-ms MS]` | Measure decision latency on this machine against a private daemon in a temporary home (your audit log is not touched): the pipeline alone, one hook call over HTTP with and without the per-request integrity check, the real shim over TCP and the Unix socket, and the post-action probe. Prints `verify Δp95 ms`; `--budget-ms` exits 1 when the check adds more than `MS` to the HTTP p95. |
 | `interlock serve [--mode shadow\|enforce] [--listen host:port]` | Run the daemon. `--mode` overrides the policy file. |
 | `interlock install --kiro [--workspace-root P] [--runtime sh\|node]` | Install the Kiro hooks. `sh` is the default shim (about 33 ms per call); `node` is about 108 ms. |
 | `interlock install --claude-code [--project P \| --user]` | Install Claude Code hooks (§4). |
 | `interlock install --codex [--project P \| --user]` | Install Codex hooks (§4). |
 | `interlock log [-n N] [-f] [--workspace W]` | Tail decisions from the spool: time, pre/post, disposition, tier, action class, tool, latency, argument. |
 | `interlock health` | Ping the daemon: version, mode, profile, policy hash. |
-| `interlock token` | Print the token path. |
+| `interlock token [--rotate]` | Print the token path. `--rotate` records the rotation, writes a new token, updates the baseline and restarts the daemon; hooks still presenting the previous token in the next 120 s are not reported as tampering. A failed rotation keeps the previous token and exits 1. |
 | `interlock test [--corpus DIR] [--policy] [--json P] [--max-fpr F] [--max-fnr F] [--judge SPEC [--flip]] [--quiet]` | Run the deterministic corpus and report per-rule and per-category false-positive / false-negative rates. Defaults to Interlock's clean policy; `--policy` uses your live layered policy. Exits non-zero when a gate is exceeded (CI). See §3.1. |
 
 ### Repository checks (`interlock scan`)
@@ -241,6 +338,10 @@ fail_mode:                                    # when the daemon does not answer,
   security.secret_leak.*: closed
   security.privilege_escalation: closed
   default: open
+  tamper: closed                              # open | closed (absent: closed); token rejected, wrong daemon, daemon lost (§2.2)
+
+notify:
+  desktop: false                              # true: an OS notification when protection becomes compromised (§2.2)
 
 judge:
   probe:
@@ -352,6 +453,7 @@ Default actions: `block` refuses; `ask` requires confirmation; `model` routes to
 | `persistence.ci_workflow_write` | `security.persistence` | medium | ask |
 | `persistence.cron_or_scheduler` | `security.persistence` | high | ask |
 | `persistence.git_hook` | `security.persistence` | high | ask |
+| `persistence.interlock_control` | `security.persistence` | high | ask |
 | `persistence.shell_rc` | `security.persistence` | high | ask |
 | `persistence.sudoers_or_system` | `security.privilege_escalation` | critical | block |
 | `secrets.dump_environment` | `security.secret_leak` | medium | model |
@@ -695,11 +797,15 @@ to upgrade. `interlock plugins` prints the API version. `tests/test_plugin_api.p
 | Symptom | Cause | Fix |
 |---|---|---|
 | Nothing appears in `interlock log` | Hook not firing | Kiro: the matcher must be `.*` (a bare `*` is an invalid regex; `~/.kiro/logs/<ts>/kiro.log` says "matcher regex failed to compile"), and the hook file must be under the folder Kiro has open, not the git root. |
-| `hook.log` shows `unjudged … curl_rc=7` | Daemon not running | `interlock status`; `interlock start`. Those calls ran under the fail mode (open by default except the closed categories). |
+| `hook.log` shows `unjudged why=operator_stopped` or `why=restarting` | Daemon stopped with `interlock stop`, or restarting | `interlock status`; `interlock start`. Those calls ran under `fail_mode.default` (open unless you set it to closed). |
 | A legitimate command was blocked | A rule fired on it | `interlock log` shows the rule id. Override it in policy (`packs.overrides.<rule>: {action: ask}` or `{enabled: false}`) or widen `trust.*`. Then add the command to `interlockd/data/packs/*.jsonl` as a negative case so it stays fixed. |
 | `git push` asks every time | Remote not in `trust.allowed_git_remotes` | Add your org pattern, e.g. `github.com/my-org/*`. |
 | Daemon won't start: address in use | A previous instance still holds the port | `interlock stop`; if that fails, `lsof -nP -iTCP:7391`. |
-| Not sure protection is on | Hooks removed, shim edited, daemon down | `interlock doctor` lists each problem with the fix. |
+| Not sure protection is on | Hooks removed, shim edited, daemon down | `interlock status` (first line) and `interlock doctor` list each problem with the fix. |
+| Every call refused with `daemon_identity` | The process on the daemon's address is not this home's daemon: a daemon from before the upgrade (no identity yet), another Interlock home on the same port, or something else listening there | `interlock restart`; if it persists, `lsof -nP -iTCP:7391` and stop the other process. `interlock doctor` names the cause. |
+| Every call refused with `token_rejected` | The process on the daemon's address does not accept this home's token (often a daemon serving another home) | `interlock doctor`; stop the other daemon, then `interlock restart`. |
+| Every call refused with `daemon_lost` | The daemon went away without `interlock stop` (crash, kill, a reboot without the service) | `interlock doctor`, then `interlock start`. To stop on purpose, use `interlock stop`; then `fail_mode.default` applies. |
+| `status` says `compromised` with `policy_modified` after you edited the policy | Hand edits are not pinned (§2.2) | `interlock policy diff`, then `interlock policy accept` and `interlock restart`. |
 | Credentials or network unavailable | Normal for laptops | The gate keeps working; the spool keeps records; the drainer catches up later. |
 
 ## 8. Known limitations
@@ -735,5 +841,6 @@ Adding a rule: register it in `interlockd/det/packs.py` with `rule(id, category,
 | 2026-10-11 | Judge scoring + calibration (§3.3): a separate `score_judge` pass (deterministic runner stays pure) and `interlock calibrate` — per-question accuracy/ECE/Brier/reliability and band selection fit on the dev split, reported on held-out. `interlock test --judge` adds a one-line judge summary. Backends: a live Decider URL or `replay:PATH`. |
 | 2026-10-17 | Calibration (§3.3): confidence-filtered band fitting — labels within `0.2` of `0.5` are excluded from the FPR/FNR fit (kept in ECE), so deliberately-ambiguous cases no longer drag the threshold to extremes; the table reports how many were excluded. Max-margin operating threshold — among dev-tied thresholds the fit picks the separating-gap midpoint, not the cluster edge. Min-sample guard — a question meets targets only with ≥ 10 held-out confident pairs and both classes present. `--dump-scores <path>` writes per-case `(label, prediction, truth_bit, split)` JSONL for diagnosis. `confirmation_given` scored through the production `project_confirmation` state. `--write-bands` now does a minimal in-place edit of `judge.bands` (comments/formatting preserved). Judge corpus grown to 258 labels across 282 archetype cases (122 `intent_authorized`, 50 `confirmation_given`, 41 `injection_present`, 23 `injection_targets_action`, 22 `exfil_risk`); `injection_targets_action` numeric→choice label fix (acc 0.00→0.91). Reports under `docs/reports/`; `confirmation_given`'s band (`confirm_allow_at: 0.70`) promoted to the workspace policy. |
 | 2026-10-17 | Local injection probe (§1, §3): vendor-neutral post-action detector, on by default — weighted heuristics for instructions addressed to an agent (override, role markers, addressee + action + risky target, concealment, false authority) and hidden carriers (HTML comments, Unicode tag characters, zero-width text), with quoted attack phrases in security discussion discounted; optional Hugging Face classifier via `judge.probe.local.classifier_model` and the `promptguard` extra. 24/24 labelled injections and 0/17 benign results in the archetype corpus. Composes deny-wins with Bedrock Guardrails and the judge. GitHub Actions CI (`.github/workflows/ci.yml`): ruff, pytest, `interlock test` on the pack and archetype corpora. |
+| Unreleased | Tamper detection (§2.2): daemon identity on every reply, checked by every shim; `fail_mode.tamper` (default `closed`) for `token_rejected`, `daemon_identity` and `daemon_lost`; stop markers tell `interlock stop` from a lost daemon; per-request shim and hook check plus a 10 s watch; policy and token pinning with `interlock policy diff\|accept\|revert`; protection state first in `status`, in `doctor` and the health endpoint; `interlock ack`; `notify.desktop`; `persistence.interlock_control`; `selftest` wrong-token and `--shim` cases; `bench --budget-ms`. `INTERLOCK_FAIL_MODE` honours only `closed`. |
 real AgentDojo/InjecAgent/AgentDrift schemas; `label --auto` pre-fills clear-cut cases (safe benign default on ambiguous ones). |
 | 2026-10-11 | Judge scoring + calibration (§3.3): a separate `score_judge` pass (deterministic runner stays pure) and `interlock calibrate` — per-question accuracy/ECE/Brier/reliability and band selection fit on the dev split, reported on held-out. `interlock test --judge` adds a one-line judge summary. Backends: a live Decider URL or `replay:PATH`. |

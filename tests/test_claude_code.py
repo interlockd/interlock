@@ -137,16 +137,41 @@ SHIM = Path(__file__).resolve().parents[1] / "interlockd" / "shims" / "claude-co
 @pytest.mark.skipif(shutil.which("curl") is None, reason="curl not available")
 def test_shim_prints_daemon_json(server, tmp_path):
     home = tmp_path / "ih"; home.mkdir(); (home / "token").write_text("tok\n", encoding="utf-8")
+    (home / "identity").write_text(server.identity + "\n", encoding="utf-8")         # the shim verifies replies
     shim = tmp_path / "shim.sh"; shim.write_text(SHIM.read_text(encoding="utf-8").replace("__HARNESS__", "claude-code"), encoding="utf-8")
     host, port = server.address
     env = {**os.environ, "INTERLOCK_HOME": str(home), "INTERLOCK_URL": f"http://{host}:{port}"}
-    r = subprocess.run(["sh", str(shim)], input=json.dumps(PRE), text=True, capture_output=True, env=env, timeout=10, check=False)
-    assert r.returncode == 0 and json.loads(r.stdout)["hookSpecificOutput"]["permissionDecision"] == "deny"
-    r = subprocess.run(["sh", str(shim)], input=json.dumps({**PRE, "tool_input": {"command": "ls"}}), text=True, capture_output=True, env=env, timeout=10, check=False)
+
+    def run(payload):
+        return subprocess.run(["sh", str(shim)], input=json.dumps(payload), text=True, capture_output=True, env=env,
+                              timeout=10, check=False)
+
+    def decision(r):
+        return json.loads(r.stdout)["hookSpecificOutput"]["permissionDecision"]
+
+    r = run(PRE)
+    assert r.returncode == 0 and decision(r) == "deny"
+    r = run({**PRE, "tool_input": {"command": "ls"}})
     assert r.returncode == 0 and r.stdout == ""
-    env["INTERLOCK_URL"] = "http://127.0.0.1:1"; env["INTERLOCK_FAIL_MODE"] = "closed"
-    r = subprocess.run(["sh", str(shim)], input=json.dumps(PRE), text=True, capture_output=True, env=env, timeout=10, check=False)
-    assert json.loads(r.stdout)["hookSpecificOutput"]["permissionDecision"] == "deny" and "unreachable" in r.stdout
+    # a reply without this home's identity is never applied, even an allow
+    (home / "identity").write_text("0" * 32 + "\n", encoding="utf-8")
+    r = run({**PRE, "tool_input": {"command": "ls"}})
+    assert decision(r) == "deny" and "(daemon_identity)" in r.stdout
+    assert "tamper daemon_identity harness=claude-code tool=Bash kind=pre" in (home / "hook.log").read_text(encoding="utf-8")
+    assert "0" * 32 not in (home / "hook.log").read_text(encoding="utf-8")
+    # the daemon gone without `interlock stop`: an unexpected loss, refused whatever INTERLOCK_FAIL_MODE says
+    env["INTERLOCK_URL"] = "http://127.0.0.1:1"; env["INTERLOCK_FAIL_MODE"] = "open"
+    r = run(PRE)
+    assert decision(r) == "deny" and "(daemon_lost)" in r.stdout and "interlock start" in r.stdout
+    # after `interlock stop` (marker without expiry): fail_mode.default, open unless the env closes it
+    (home / "stop-marker.json").write_text('{"action": "stop", "written_at": "2026-10-17T10:00:00Z"}\n', encoding="utf-8")
+    r = run(PRE)
+    assert r.returncode == 0 and r.stdout == ""
+    env["INTERLOCK_FAIL_MODE"] = "closed"
+    r = run(PRE)
+    assert decision(r) == "deny" and "unreachable" in r.stdout
+    log = (home / "hook.log").read_text(encoding="utf-8")
+    assert "unjudged why=operator_stopped harness=claude-code" in log and "git push" not in log
 
 
 def test_installers_merge_existing_settings(tmp_path, monkeypatch):
@@ -225,6 +250,37 @@ def test_live_captured_payloads(server, path):
         assert "[interlock]" in text and "evil.example" not in text
     else:
         assert body == ""
+
+
+def test_render_shadow_tamper_notice_placement():
+    from interlockd.models import Finding
+    from interlockd.render import tamper_notice
+
+    flag = [Finding(category="control.hook_tamper", rule="control.shim_modified", detector="interlock.verifier")]
+    n = tamper_notice("claude-code", "shim_modified", outcome="observed")
+    out = render_claude_code(_v(mode="shadow", notice=n, findings=flag), kind="pre_action")
+    assert out == {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": n}}   # no decision
+    assert render_claude_code(_v(mode="shadow", notice=n, findings=flag), kind="pre_action", harness="codex") is None
+    assert render_claude_code(_v(mode="shadow", notice="would refuse", findings=flag), kind="pre_action") is None
+    assert render_claude_code(_v(mode="shadow", notice=n), kind="pre_action") is None             # no finding
+    assert render_claude_code(_v(mode="shadow", notice=n, findings=flag), kind="post_action") is None
+
+
+def test_api_compromised_enforce_denies_and_shadow_adds_context(server):
+    from conftest import compromise
+
+    benign = {**PRE, "tool_input": {"command": "ls"}}
+    compromise(server.daemon, "enforce")
+    d = json.loads(_post(server, "claude-code", benign))["hookSpecificOutput"]
+    assert d["permissionDecision"] == "deny"
+    assert "claude-code" in d["permissionDecisionReason"] and "enforcement_point" in d["permissionDecisionReason"]
+    assert _post(server, "claude-code", {**POST, "tool_response": {"stdout": "ok"}}, event="post") == ""
+    compromise(server.daemon, "shadow")
+    s = json.loads(_post(server, "claude-code", benign))["hookSpecificOutput"]
+    assert set(s) == {"hookEventName", "additionalContext"} and "enforcement_point" in s["additionalContext"]
+    assert _post(server, "codex", benign) == ""                      # shadow notice omitted where not measured
+    rec = next(server.daemon.spool.iter_records())
+    assert rec["findings"][-1]["category"] == "control.hook_tamper" and rec["disposition"] == "allow"
 
 
 def test_codex_withhold_uses_decision_block():

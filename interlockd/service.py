@@ -257,6 +257,22 @@ WantedBy=default.target
         self.stop()
         self.start()
 
+    def stop_for(self, action: str) -> None:
+        """Stop on behalf of an operator action: write the Stop_Marker first so the shims read the outage as
+        `operator_stopped`, not `daemon_lost`. Raises OSError (and stops nothing) when the marker cannot be written."""
+        from .lifecycle import write_stop_marker
+
+        write_stop_marker(self.home, action)
+        self.stop()
+
+    def restart_for(self, action: str) -> None:
+        """Restart on behalf of an operator action: the marker (with a 120 s expiry for restarting actions) is written
+        first; raises OSError (and restarts nothing) when it cannot be."""
+        from .lifecycle import write_stop_marker
+
+        write_stop_marker(self.home, action)
+        self.restart()
+
     def uninstall(self) -> None:
         self.stop()
         if self.backend == "winrun":

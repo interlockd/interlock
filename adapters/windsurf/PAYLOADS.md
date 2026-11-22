@@ -47,3 +47,11 @@ decision (keyed on `execution_id`, event and `tool_info`, 5 s), so it is recorde
 Because no hook carries file contents, the daemon reads the file named by `pre_read_code` itself (up to 256 KiB, regular
 files only, never a sensitive path) and runs the injection probe on it. An injected file is refused before Cascade
 reads it, and the path is remembered for `flow.reread_withheld`. Shell output can't be checked on Windsurf.
+## Tamper refusals
+Shared contract (classification, cause keywords, messages, `hook.log`, the `shim` request field and the `X-Interlock-Identity` header): `adapters/README.md`. Windsurf output, within the contract above:
+| Case | Interlock emits |
+|---|---|
+| `token_rejected`, `daemon_identity`, `daemon_lost` on a `pre_*` hook, `fail_mode.tamper: closed` | exit 2, `<tamper message>` on stderr |
+| `enforcement_point` on a `pre_*` hook (daemon block) | exit 2, the daemon's notice on stderr (text format) |
+| `fail_mode.tamper: open`, or any `post_*` hook | no output, exit 0 |
+Windsurf runs each hook twice; each run classifies and logs on its own, so a tamper case writes two `hook.log` lines.

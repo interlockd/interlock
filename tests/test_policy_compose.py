@@ -147,3 +147,89 @@ def test_compose_examples():
     assert compose([]) == {} and compose([{"judge": {"backend": "none"}, "mode": "shadow"}, "junk"]) == {}
     assert compose([{"trust": {"allowed_git_remotes": ["a"]}}, {"trust": {"allowed_git_remotes": ["b"]}}]) == \
         {"trust": {"allowed_git_remotes": ["a"]}}                   # a layer sharing no remote is skipped
+
+
+# --- fail_mode.tamper and notify.desktop (hook-tamper-detection, Requirements 4.1, 4.2, 6.6) ------------------------
+
+def test_fail_mode_tamper_defaults_to_closed_and_accepts_open_or_closed():
+    assert Policy().fail_mode["tamper"] == "closed"
+    assert Policy.model_validate({"fail_mode": {"default": "open"}}).fail_mode == {"default": "open", "tamper": "closed"}
+    for v in ("open", "closed"):
+        assert Policy.model_validate({"fail_mode": {"default": "closed", "tamper": v}}).fail_mode["tamper"] == v
+    assert Policy().notify.desktop is False
+    assert Policy.model_validate({"notify": {"desktop": True}}).notify.desktop is True
+
+
+@pytest.mark.parametrize("bad", ["Closed", "", "off", "deny", True, 0, None])
+def test_fail_mode_tamper_rejects_other_values(bad):
+    with pytest.raises(ValueError, match=f"fail_mode.tamper: {bad} is not one of open, closed"):
+        Policy.model_validate({"fail_mode": {"tamper": bad}})
+
+
+def test_notify_rejects_unknown_keys():
+    with pytest.raises(ValueError):
+        Policy.model_validate({"notify": {"sound": True}})
+
+
+def test_load_policy_validates_fail_mode_tamper(tmp_path):
+    from interlockd.policy import load_policy
+
+    (tmp_path / "policy.yaml").write_text("fail_mode:\n  default: open\n  tamper: maybe\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="fail_mode.tamper: maybe"):
+        load_policy(None, home=tmp_path)
+    (tmp_path / "policy.yaml").write_text("fail_mode:\n  default: closed\n", encoding="utf-8")
+    assert load_policy(None, home=tmp_path).fail_mode["tamper"] == "closed"
+
+
+def test_repository_and_managed_layers_cannot_change_fail_mode_tamper():
+    # fail modes follow `fail_mode.default`: only your own policy sets them; tighten-only layers ignore them
+    for base_value in ("open", "closed"):
+        base = Policy.model_validate({"fail_mode": {"default": "open", "tamper": base_value}})
+        other = "closed" if base_value == "open" else "open"
+        pol, ignored = tighten(base, {"fail_mode": {"tamper": other}})
+        assert pol.fail_mode["tamper"] == base_value and "fail_mode" in ignored
+        pol, ignored = tighten(base, {"fail_mode": {"tamper": base_value}})   # restating it is not reported
+        assert pol.fail_mode["tamper"] == base_value and "fail_mode" not in ignored
+    assert "fail_mode" not in compose([{"fail_mode": {"tamper": "open"}}])
+
+
+def test_fail_mode_file_always_carries_default_and_tamper(tmp_path):
+    import json
+    import os
+    import stat
+
+    from interlockd import failmode
+    from interlockd.config import DEFAULT_FAIL_MODE
+
+    doc = failmode.write(tmp_path, DEFAULT_FAIL_MODE, Policy())
+    text = (tmp_path / "fail-mode.json").read_text(encoding="utf-8")
+    assert json.loads(text) == doc == {**DEFAULT_FAIL_MODE, "tamper": "closed"}
+    assert '"default": "open"' in text and '"tamper": "closed"' in text     # what the shims match on
+    if os.name == "posix":
+        assert stat.S_IMODE((tmp_path / "fail-mode.json").stat().st_mode) == 0o600
+    assert not (tmp_path / "fail-mode.json.tmp").exists()
+
+    open_pol = Policy.model_validate({"fail_mode": {"default": "closed", "tamper": "open"}})
+    # `default` keeps coming from the settings table; `tamper` only from the policy (a stray table entry is replaced)
+    doc = failmode.write(tmp_path, {"default": "closed", "tamper": "open"}, None)
+    assert doc == {"default": "closed", "tamper": "closed"}
+    doc = failmode.write(tmp_path, {"security.persistence": "closed"}, open_pol)
+    assert doc == {"security.persistence": "closed", "default": "open", "tamper": "open"}
+    assert json.loads((tmp_path / "fail-mode.json").read_text(encoding="utf-8")) == doc
+    assert failmode.effective_tamper({"tamper": "nope"}) == "closed"
+
+
+def test_cli_writers_include_tamper(tmp_path):
+    import json
+
+    from interlockd.cli import _write_fail_mode
+    from interlockd.config import Settings
+
+    s = Settings(home=tmp_path)
+    assert _write_fail_mode(s)["tamper"] == "closed"                       # no policy file: closed
+    (tmp_path / "policy.yaml").write_text("fail_mode:\n  default: open\n  tamper: open\n", encoding="utf-8")
+    assert _write_fail_mode(s)["tamper"] == "open"
+    (tmp_path / "policy.yaml").write_text("fail_mode:\n  tamper: bogus\n", encoding="utf-8")
+    assert _write_fail_mode(s)["tamper"] == "closed"                       # a policy that does not load: closed
+    on_disk = json.loads((tmp_path / "fail-mode.json").read_text(encoding="utf-8"))
+    assert on_disk["default"] == s.fail_mode["default"] and on_disk["tamper"] == "closed"

@@ -6,6 +6,8 @@
   POST /interlock/v1/hooks/kiro             bearer   raw Kiro hook payload -> Verdict (daemon normalizes)
   GET  /interlock/v1/events/<event_id>      bearer
   GET  /interlock/v1/events?workspace=&limit=  bearer  (tail)
+  POST /interlock/v1/control/operator-action   bearer   record an Operator_Action (operator.py)
+  POST /interlock/v1/control/ack               bearer   clear acknowledged Protection_State reasons
 
 OGR conformance (design §5.2), served at the bare /v1 prefix the spec uses:
   GET  /v1/health                           no auth
@@ -30,7 +32,8 @@ from urllib.parse import parse_qs, urlparse
 
 from pydantic import ValidationError
 
-from . import __version__, capture
+from . import __version__, capture, operator, tamper
+from . import identity as identity_mod
 from .auth import check_bearer
 from .config import MAX_REQUEST_BYTES
 from .models import InterlockEvent
@@ -67,6 +70,28 @@ def _windsurf_repeat_key(path: str, body: dict) -> tuple[str, str, str] | None:
     digest = hashlib.sha256(json.dumps(p.get("tool_info"), sort_keys=True, default=str).encode()).hexdigest()
     return str(p["execution_id"]), str(p.get("agent_action_name")), digest
 
+def _policy_pin(daemon: Any) -> dict[str, Any]:
+    """Pinned (Integrity_Baseline) versus on-disk digest of `<Home>/policy.yaml`; "" when absent or unpinned."""
+    from . import integrity
+
+    provider = getattr(daemon, "baseline_provider", None)
+    try:
+        baseline = provider() if provider is not None else None
+    except Exception:  # health must answer even when the baseline cannot be read
+        log.exception("cannot read the integrity baseline for health")
+        baseline = None
+    pinned = baseline.policy_file_sha256 if baseline is not None else ""
+    on_disk = integrity.file_sha256(daemon.settings.home / integrity.POLICY_FILE)
+    return {"pinned_sha256": pinned, "on_disk_sha256": on_disk, "modified": bool(pinned) and pinned != on_disk}
+
+
+def _fail_mode_tamper(daemon: Any) -> str:
+    """The effective `fail_mode.tamper`: the policy's value when it is open or closed, else closed (4.1, 4.7)."""
+    fm = getattr(daemon.policy, "fail_mode", None)
+    value = fm.get("tamper") if isinstance(fm, dict) else getattr(fm, "tamper", None)
+    return value if value in ("open", "closed") else "closed"
+
+
 class _Server(ThreadingHTTPServer):
     """HTTPServer.server_bind resolves the host with socket.getfqdn(), a reverse-DNS lookup that can stall for tens
     of seconds on machines with slow DNS (seen on CI runners). The daemon binds loopback; it never needs the name."""
@@ -97,8 +122,12 @@ class _UnixServer(socketserver.ThreadingMixIn, getattr(socketserver, "UnixStream
 
 
 class ApiServer:
-    def __init__(self, daemon: Daemon, token: str, host: str, port: int, *, unix_socket: str | None = None):
+    def __init__(self, daemon: Daemon, token: str, host: str, port: int, *, unix_socket: str | None = None,
+                 identity: str | None = None):
         self.daemon, self.token = daemon, token
+        # Sent as X-Interlock-Identity on every reply. `interlock serve` derives it, writes <Home>/identity and
+        # passes it in; embedded servers (tests, bench) get a fresh token-bound value so the header is never absent.
+        self.identity = identity or identity_mod.derive(token, identity_mod.new_nonce())
         handler = self._make_handler()
         self.httpd = _Server((host, port), handler)
         self.httpd.daemon_threads = True
@@ -148,6 +177,15 @@ class ApiServer:
                 log.debug(fmt, *args)
 
             # -- helpers
+            def send_response(self, code: int, message: str | None = None) -> None:
+                # Every final reply (hook verdicts in every format, the Windsurf repeat, health, MCP gateway, 4xx/5xx
+                # errors and BaseHTTPRequestHandler.send_error) goes through here exactly once, on TCP and the Unix
+                # socket alike, so the identity header is added exactly once per reply. A `100 Continue` interim
+                # response uses send_response_only and carries no identity, so a shim never sees it twice.
+                super().send_response(code, message)
+                if code >= 200:
+                    self.send_header(identity_mod.HEADER, server.identity)
+
             def _send(self, status: int, body: dict[str, Any]) -> None:
                 data = json.dumps(body, separators=(",", ":")).encode()
                 self.send_response(status)
@@ -156,25 +194,89 @@ class ApiServer:
                 self.end_headers()
                 self.wfile.write(data)
 
-            def _authed(self) -> bool:
-                if check_bearer(self.headers.get("Authorization"), server.token):
+            def _authed(self, body_bytes: bytes | None = None) -> bool:
+                # `body_bytes` is the bounded raw body of a hook request, read before auth so a rejection can be
+                # attributed to the self-reported adapter (token-rejection recording, task 5.3). Never echoed.
+                # Routes that read no body before auth pass None (the adapter is then `unknown`).
+                header = self.headers.get("Authorization")
+                if check_bearer(header, server.token):
                     return True
+                rejections = getattr(server.daemon, "tamper", None)
+                if rejections is not None:
+                    # Recorded synchronously before the 401 leaves (2.4); the presented value is passed for the
+                    # rotation-grace digest comparison only and is never stored or recorded.
+                    presented = header[7:].strip() if header and header.startswith("Bearer ") else ""
+                    try:
+                        rejections.token_rejected(adapter=tamper.adapter_name(body_bytes),
+                                                  addr=tamper.format_addr(self.server.server_address),
+                                                  presented=presented)
+                    except Exception:  # a recording failure must not change the 401
+                        log.exception("cannot record a token rejection")
                 self._send(401, {"error": "unauthorized"})
                 return False
 
-            def _read_json(self) -> Any | None:
-                n = int(self.headers.get("Content-Length") or 0)
-                if n > MAX_REQUEST_BYTES:
-                    self._send(413, {"error": "request too large", "max_request_bytes": MAX_REQUEST_BYTES})
-                    return None
-                raw = self.rfile.read(n) if n else b""
+            def _read_raw(self, limit: int = MAX_REQUEST_BYTES) -> tuple[bytes | None, tuple[int, dict] | None]:
+                """Read the declared body without replying: (raw, None), or (None, (status, error body)) when the
+                Content-Length is invalid or over the limit (nothing is read then)."""
+                try:
+                    n = int(self.headers.get("Content-Length") or 0)
+                except ValueError:
+                    n = -1
+                if n < 0:              # rfile.read(-1) would block until the client closes the connection
+                    return None, (400, {"error": "invalid content-length"})
+                if n > limit:
+                    return None, (413, {"error": "request too large", "max_request_bytes": limit})
+                return (self.rfile.read(n) if n else b""), None
+
+            def _parse_json(self, raw: bytes | None) -> Any | None:
                 try:
                     return json.loads(raw or b"{}")
                 except json.JSONDecodeError as e:
                     self._send(400, {"error": f"invalid json: {e.msg}"})
                     return None
 
+            def _read_json(self, limit: int = MAX_REQUEST_BYTES) -> Any | None:
+                raw, err = self._read_raw(limit)
+                if err is not None:
+                    self._send(*err)
+                    return None
+                return self._parse_json(raw)
+
+            def _health(self) -> dict[str, Any]:
+                """Unauthenticated, loopback only, content-free: state names, reason codes, timestamps, harness
+                names and policy-file digests. No paths, no token or identity material."""
+                d = server.daemon
+                out: dict[str, Any] = {"status": "ok", "version": __version__, "mode": d.mode,
+                                       "profile": d.settings.profile, "policy_sha256": d.policy_sha256}
+                protection = getattr(d, "protection", None)
+                if protection is not None:
+                    out["protection"] = protection.snapshot()
+                out["policy_pin"] = _policy_pin(d)
+                out["fail_mode_tamper"] = _fail_mode_tamper(d)
+                return out
+
             # -- routes
+            def _control(self, path: str) -> None:
+                """Operator-action and ack routes (Requirement 11). Bearer first, then a small bounded body;
+                validation errors are fixed text, never echoed from the body. Served in every Protection_State
+                so the Operator can always repair (11.8)."""
+                if not self._authed():
+                    return
+                body = self._read_json(limit=operator.MAX_BODY_BYTES)
+                if body is None:
+                    return
+                handle = operator.handle_operator_action if path == operator.ROUTE else operator.handle_ack
+                try:
+                    reply = handle(server.daemon, body)
+                except operator.BadRequest as e:
+                    self._send(400, {"error": str(e)})
+                    return
+                except Exception as e:  # boundary: a failed record must not take the daemon down
+                    log.exception("control route %s failed", path)
+                    self._send(500, {"error": f"control failed: {type(e).__name__}"})
+                    return
+                self._send(200, reply)
+
             def _mcp(self, method: str) -> bool:
                 if not self.path.startswith("/mcp/"):
                     return False
@@ -191,9 +293,7 @@ class ApiServer:
                     return
                 u = urlparse(self.path)
                 if u.path == "/interlock/v1/health":
-                    s = server.daemon.settings
-                    self._send(200, {"status": "ok", "version": __version__, "mode": server.daemon.mode, "profile": s.profile,
-                                     "policy_sha256": server.daemon.policy_sha256})
+                    self._send(200, self._health())
                     return
                 if u.path == "/v1/health":  # OGR health is unauthenticated per the spec
                     self._send(200, {"status": "ok", "version": __version__, "provider": "interlock"})
@@ -251,15 +351,24 @@ class ApiServer:
                         return
                     self._send(200, verdict)
                     return
+                if u.path in (operator.ROUTE, operator.ACK_ROUTE):
+                    self._control(u.path)
+                    return
                 if u.path not in ("/interlock/v1/decide", "/interlock/v1/hooks/kiro", "/interlock/v1/hooks/claude-code",
                                   "/interlock/v1/hooks/codex", "/interlock/v1/hooks/cursor", "/interlock/v1/hooks/gemini-cli",
                                   "/interlock/v1/hooks/claude-agent-sdk",
                                   "/interlock/v1/hooks/copilot-cli", "/interlock/v1/hooks/windsurf", "/interlock/v1/hooks/antigravity"):
                     self._send(404, {"error": "not found"})
                     return
-                if not self._authed():
+                # The bounded body is read before auth (an over-limit or invalid Content-Length reads nothing), but
+                # the replies keep their order: 401 first, then 400/413, then invalid JSON.
+                raw, err = self._read_raw()
+                if not self._authed(raw):
                     return
-                body = self._read_json()
+                if err is not None:
+                    self._send(*err)
+                    return
+                body = self._parse_json(raw)
                 if body is None:
                     return
                 try:
@@ -302,8 +411,20 @@ class ApiServer:
                         self.end_headers()
                         self.wfile.write(hit[1])
                         return
+                verification = None
+                verifier = getattr(server.daemon, "verifier", None)
+                if verifier is not None and u.path.startswith("/interlock/v1/hooks/"):
+                    # Every hook request, before the verdict (5.1). The shim reports the file that ran (5.10);
+                    # pre-0.2.0 shims send none and are verified at the manifest path (5.13).
+                    reported = shim.get("shim")
+                    try:
+                        verification = verifier.verify(u.path.rsplit("/", 1)[-1],
+                                                       reported if isinstance(reported, str) else None)
+                    except Exception:  # a verifier bug must not take the hook route down
+                        log.exception("enforcement-point verification failed")
                 try:
-                    verdict = server.daemon.decide(event)
+                    verdict = (server.daemon.decide(event) if verification is None
+                               else server.daemon.decide(event, integrity=verification))
                 except Exception as e:
                     log.exception("decide failed")
                     self._send(500, {"error": f"decide failed: {type(e).__name__}"})

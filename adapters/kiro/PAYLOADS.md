@@ -105,3 +105,11 @@ With hooks embedded in an agent config (`~/.kiro/agents/<name>.json`, `"hooks": 
 | `result.content` | `tool_response` (string), post-action only |
 | `result.evidence.exit_code` | parsed from the trailing `Exit Code: N` of an `execute_bash` response |
 | `capabilities` | `{ "ask": false, "rewrite": false, "withhold": false }` |
+## 9. Tamper refusals
+Shared contract (classification, cause keywords, messages, `hook.log`, the `shim` request field and the `X-Interlock-Identity` header): `adapters/README.md`. Both Kiro shims (`interlock-hook.sh` and `interlock-hook.mjs`) use the block channel measured in §5 and send their own path as `adapter.shim` (`$0` made absolute for sh, `fileURLToPath(import.meta.url)` for mjs).
+| Case | Interlock emits |
+|---|---|
+| `token_rejected`, `daemon_identity`, `daemon_lost` on PreToolUse, `fail_mode.tamper: closed` | exit 2, `<tamper message>` on stderr |
+| `enforcement_point` on PreToolUse (daemon block, text format `block enforce <tier>` then the notice) | exit 2, the daemon's notice on stderr |
+| `fail_mode.tamper: open` on PreToolUse, or shadow mode | no output, exit 0 |
+| Any PostToolUse | no output, exit 0 (§5: post-tool stderr does not reach the agent) |

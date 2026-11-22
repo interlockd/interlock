@@ -18,7 +18,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 MAX_BYTES = 64 * 1024
-KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,31}$")
+KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,31}\Z")
 ErrorCallback = Callable[[str, str], None]
 _POSIX = os.name == "posix" and hasattr(os, "geteuid")
 

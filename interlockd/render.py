@@ -6,6 +6,51 @@ from typing import Any
 
 from .models import Verdict
 
+# ---- compromised enforcement point (Requirement 6) ---------------------------------------------------------------
+# The in-session notice for a harness whose enforcement point is compromised. Content-free: a fixed harness name, a
+# fixed reason code and fixed text. `enforcement_point` is the Requirement 4.10 cause keyword.
+TAMPER_KEYWORD = "enforcement_point"
+TAMPER_FINDING = "control.hook_tamper"
+_TAMPER_PREFIX = "[interlock] Protection for "
+_TAMPER_OUTCOME = {
+    "blocked": " This action was NOT executed.",
+    "observed": " Interlock is in shadow mode, so this action was not stopped.",
+    "result": "",
+}
+
+
+def tamper_notice(harness: str, reason: str, *, outcome: str = "blocked") -> str:
+    """The notice naming the harness, the reason and the repair commands. `outcome` is "blocked" (enforce: the call
+    was refused), "observed" (shadow: the call goes ahead) or "result" (a gateway result annotation)."""
+    return (f"{_TAMPER_PREFIX}{harness} is compromised ({reason}, {TAMPER_KEYWORD})."
+            f"{_TAMPER_OUTCOME.get(outcome, '')} Tell the user. To repair, the user runs `interlock doctor`, then "
+            "`interlock init` to reinstall the hook or `interlock ack` to accept the change.")
+
+
+def tamper_notice_in(text: str | None) -> str | None:
+    """The tamper notice carried in `text` (alone, or appended after another notice), else None."""
+    if not text:
+        return None
+    i = text.find(_TAMPER_PREFIX)
+    if i < 0 or f", {TAMPER_KEYWORD})." not in text[i:]:
+        return None
+    return text[i:]
+
+
+def _shadow_tamper_notice(v: Verdict) -> str | None:
+    """In shadow mode only the tamper notice reaches the harness, and only when the pipeline included it."""
+    if not any(f.category == TAMPER_FINDING for f in v.findings):
+        return None
+    return v.notice if tamper_notice_in(v.notice) == v.notice else None
+
+
+# Harnesses whose pre-tool contract carries a message without a decision, so a shadow-mode tamper notice can reach
+# the agent while the harness keeps deciding: Claude Code `hookSpecificOutput.additionalContext` on PreToolUse.
+# Elsewhere the notice is omitted in shadow mode: Codex and the Claude Agent SDK route (not measured), Cursor (output
+# without a permission blocks), Gemini BeforeTool (no context channel), Copilot preToolUse (additionalContext is not
+# passed to the agent), Antigravity (a decision is required), Kiro and Windsurf (the shim exits 0 silently).
+SHADOW_NOTICE_HARNESSES = {"claude-code"}
+
 
 def render_text(v: Verdict) -> str:
     """Kiro shim: line 1 '<disposition> <mode> <tier>', then the notice or reason."""
@@ -51,9 +96,14 @@ def render_claude_code(v: Verdict, *, kind: str, tool_response: Any = None, harn
                        tool_input: Any = None) -> dict[str, Any] | None:
     """Claude Code / Codex JSON for stdout. None means: print nothing, exit 0 (the harness decides on its own).
 
-    Interlock never emits permissionDecision "allow": that would skip the harness's own permission prompt.
+    Interlock never emits permissionDecision "allow": that would skip the harness's own permission prompt. In shadow
+    mode the only output is a compromised-enforcement-point notice as PreToolUse `additionalContext` (Claude Code),
+    with no permissionDecision, so the harness still decides (Requirement 6.2).
     """
     if v.mode == "shadow":
+        notice = _shadow_tamper_notice(v) if kind == "pre_action" and harness in SHADOW_NOTICE_HARNESSES else None
+        if notice:
+            return {"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": notice}}
         return None
     if kind == "pre_action":
         if v.disposition == "block":

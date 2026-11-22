@@ -103,10 +103,29 @@ def test_gemini_rendering(server):
     assert "WARNING" in mild["hookSpecificOutput"]["additionalContext"]
 
 
+def test_compromised_enforcement_point_rendering(server):
+    """Enforce: the refusal channel carries the tamper notice. Shadow: neither preToolUse contract carries a message
+    without a decision (Cursor blocks on output that isn't permission JSON; BeforeTool has no context channel), so
+    the reply stays "no opinion"."""
+    from conftest import compromise
+
+    benign_cursor = {**CURSOR_PRE, "tool_input": {"command": "ls"}}
+    benign_gemini = {**GEMINI_PRE, "tool_input": {"command": "ls"}}
+    compromise(server.daemon, "enforce", "hook_removed")
+    c = json.loads(_post(server, "cursor", benign_cursor))
+    assert c["permission"] == "deny" and "enforcement_point" in c["agent_message"] and "cursor" in c["agent_message"]
+    g = json.loads(_post(server, "gemini-cli", benign_gemini))
+    assert g["decision"] == "deny" and "hook_removed" in g["reason"] and "enforcement_point" in g["reason"]
+    compromise(server.daemon, "shadow", "hook_removed")
+    assert _post(server, "cursor", benign_cursor) == ""
+    assert _post(server, "gemini-cli", benign_gemini) == ""
+
+
 @pytest.mark.skipif(shutil.which("curl") is None, reason="curl not available")
 @pytest.mark.parametrize("harness,pre,deny_key", [("cursor", CURSOR_PRE, "permission"), ("gemini-cli", GEMINI_PRE, "decision")])
 def test_shim_per_harness(server, tmp_path, harness, pre, deny_key):
     home = tmp_path / "ih"; home.mkdir(); (home / "token").write_text("tok\n", encoding="utf-8")
+    (home / "identity").write_text(server.identity + "\n", encoding="utf-8")         # the shim verifies replies
     shim = tmp_path / "shim.sh"; shim.write_text(SHIM.read_text(encoding="utf-8").replace("__HARNESS__", harness), encoding="utf-8")
     host, port = server.address
     env = {**os.environ, "INTERLOCK_HOME": str(home), "INTERLOCK_URL": f"http://{host}:{port}"}
@@ -120,7 +139,10 @@ def test_shim_per_harness(server, tmp_path, harness, pre, deny_key):
     benign = {**pre, "tool_input": {"command": "ls"}}
     r = run(benign)
     assert r.stdout == "" and r.returncode == (1 if harness == "cursor" else 0)   # Cursor: non-zero exit = fail open
-    r = run(pre, INTERLOCK_URL="http://127.0.0.1:1", INTERLOCK_FAIL_MODE="closed")
+    r = run(pre, INTERLOCK_URL="http://127.0.0.1:1")                                  # unexpected loss: closed
+    assert r.returncode == 0 and json.loads(r.stdout)[deny_key] == "deny" and "(daemon_lost)" in r.stdout
+    (home / "stop-marker.json").write_text('{"action": "stop", "written_at": "2026-10-17T10:00:00Z"}\n', encoding="utf-8")
+    r = run(pre, INTERLOCK_URL="http://127.0.0.1:1", INTERLOCK_FAIL_MODE="closed")  # operator stop: fail_mode.default
     assert json.loads(r.stdout)[deny_key] == "deny" and "unreachable" in r.stdout
     r = run(pre, INTERLOCK_URL="http://127.0.0.1:1", INTERLOCK_FAIL_MODE="open")
     assert r.stdout == "" and r.returncode == (1 if harness == "cursor" else 0)

@@ -48,14 +48,19 @@ def read_managed(home: str | Path) -> Managed | None:
         return None
     except OSError:
         return Managed(str(p), "", None, "(file is unreadable)")
+    return parse_managed(str(p), raw)
+
+
+def parse_managed(path: str, raw: bytes) -> Managed:
+    """A managed document from its bytes (the file, or its pinned copy)."""
     sha = hashlib.sha256(raw).hexdigest()
     try:
         data = yaml.safe_load(raw.decode("utf-8")) or {}
         if not isinstance(data, dict):
             raise TypeError("not a mapping")
     except (UnicodeDecodeError, TypeError, ValueError, yaml.YAMLError):
-        return Managed(str(p), sha, None, "(file does not parse)")
-    return Managed(str(p), sha, {k: v for k, v in data.items() if k not in ("source_paths", "sha256")})
+        return Managed(path, sha, None, "(file does not parse)")
+    return Managed(path, sha, {k: v for k, v in data.items() if k not in ("source_paths", "sha256")})
 
 
 def apply_managed(base: Policy, m: Managed) -> tuple[Policy, list[str]]:
@@ -86,6 +91,15 @@ class ManagedPolicy:
         self._stamp: tuple | None = None
         self._managed: Managed | None = None
         self._cache: dict[str, tuple[Policy, dict[str, Any]]] = {}
+        self.guard: Any = None      # policy.pin.PolicyGuard, set by the daemon at start (Requirement 7.10)
+
+    def set_guard(self, guard: Any) -> None:
+        """Apply a changed file only when it is pinned or explained by the Console sync; otherwise serve the
+        pinned copy (the guard records `managed_policy_modified`). Forces a re-read on the next call."""
+        with self._lock:
+            self.guard = guard
+            self._checked = float("-inf")
+            self._stamp = ("unset",)
 
     def _current(self) -> Managed | None:
         now = time.monotonic()
@@ -95,15 +109,19 @@ class ManagedPolicy:
             self._checked = now
             try:
                 st = managed_path(self.home).stat()
-                stamp: tuple | None = (st.st_mtime_ns, st.st_size, st.st_ino)
+                file_stamp: tuple | None = (st.st_mtime_ns, st.st_size, st.st_ino)
             except FileNotFoundError:
-                stamp = None
+                file_stamp = None
             except OSError:
-                stamp = ("unreadable",)
+                file_stamp = ("unreadable",)
+            guard = self.guard
+            # with a guard, a pin moved by the Console sync (or `interlock ack`) re-evaluates an unchanged file
+            stamp = file_stamp if guard is None else (file_stamp, guard.pinned_sha256("managed"))
             if stamp != self._stamp:
                 had = self._managed is not None
                 self._stamp = stamp
-                self._managed = read_managed(self.home) if stamp is not None else None
+                on_disk = read_managed(self.home) if file_stamp is not None else None
+                self._managed = on_disk if guard is None else guard.managed_for(on_disk, self._managed)
                 self._cache.clear()
                 if self._managed is not None:
                     state = self._managed.error or f"sha256 {self._managed.sha256[:12]}"

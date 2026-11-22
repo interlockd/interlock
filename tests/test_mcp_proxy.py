@@ -112,6 +112,63 @@ def test_daemon_down_fail_open_and_closed(env):
     assert r[3]["result"]["isError"] is True and "unreachable" in r[3]["result"]["content"][0]["text"]
 
 
+def _in_process(tmp_path, mode):
+    """A proxy whose decisions come from an in-process daemon (as the HTTP gateway runs it) with one compromised
+    harness."""
+    from interlockd import records
+    from interlockd.models import InterlockEvent
+    from interlockd.pipeline import Daemon
+    from interlockd.policy import Policy
+    from interlockd.protection import ProtectionState
+    from interlockd.store.spool import Spool
+
+    s = Settings(home=tmp_path / "il")
+    s.home.mkdir(exist_ok=True)
+    pol = Policy(); pol.mode = mode; pol.trust.workspace_roots = [str(tmp_path)]
+    d = Daemon(s, spool=Spool(s.spool_dir), policy=pol)
+    d.protection = ProtectionState(s.home, d.spool, None, lambda: d.mode, harnesses=lambda: ["claude-code"])
+    d.protection.add_reason("claude-code", "shim_modified", "", records.now_iso())
+    out = io.StringIO()
+    p = Proxy("fake", FAKE, s, client_out=out, quiet=True, mode_fn=lambda: d.mode,
+              decider=lambda ev: d.decide(InterlockEvent.model_validate(ev)).model_dump())
+    return d, p, out
+
+
+def test_compromised_harness_blocks_gateway_calls_in_enforce(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    d, p, out = _in_process(tmp_path, "enforce")
+    call = {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "echo", "arguments": {"text": "hi"}}}
+    assert p.on_client_message(call) is None                                 # answered here, never forwarded
+    reply = json.loads(out.getvalue())
+    assert reply["result"]["isError"] is True
+    assert "enforcement_point" in reply["result"]["content"][0]["text"] and "claude-code" in reply["result"]["content"][0]["text"]
+    rec = next(d.spool.iter_records())
+    assert rec["disposition"] == "block" and rec["findings"][-1]["category"] == "control.hook_tamper"
+
+
+def test_compromised_harness_annotates_gateway_results_in_shadow(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    d, p, _ = _in_process(tmp_path, "shadow")
+    call = {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "echo", "arguments": {"text": "hi"}}}
+    assert p.on_client_message(call) == call                                 # shadow: forwarded unchanged
+    result = {"jsonrpc": "2.0", "id": 3, "result": {"content": [{"type": "text", "text": "ran echo"}]}}
+    texts = [c["text"] for c in p.on_server_message(result)["result"]["content"]]
+    assert texts[0] == "ran echo" and len(texts) == 2 and "enforcement_point" in texts[1]   # notice appended once
+    p.on_client_message({**call, "id": 4})
+    again = p.on_server_message({**result, "id": 4})
+    assert [c["text"] for c in again["result"]["content"]] == ["ran echo"]   # windowed: once per 60 s
+    flagged = [r for r in d.spool.iter_records() if r.get("adapter") == "mcp-proxy"]
+    assert flagged and all(r["findings"][-1]["category"] == "control.hook_tamper" for r in flagged)
+
+
+def test_annotate_result_does_not_repeat_a_carried_notice():
+    from interlockd.mcp_proxy import annotate_result
+
+    msg = {"id": 1, "result": {"content": [{"type": "text", "text": "withheld\n\nNOTICE"}]}}
+    assert annotate_result(msg, ["NOTICE"]) is msg and annotate_result(msg, []) is msg
+    assert annotate_result({"id": 1, "result": {}}, ["N"])["result"]["content"] == [{"type": "text", "text": "N"}]
+
+
 def test_fingerprint_covers_description_and_schema():
     a = {"name": "t", "description": "d", "inputSchema": {"type": "object"}}
     assert tool_fingerprint(a) == tool_fingerprint(dict(a))

@@ -1,0 +1,189 @@
+{
+ "cases": [
+  {
+   "arg": "",
+   "case": "pre-allow",
+   "expect": {
+    "hook_log": "",
+    "returncode": 0,
+    "stderr": "",
+    "stdout": ""
+   },
+   "harness": "kiro",
+   "payload": "{\"session_id\":\"s1\",\"hook_event_name\":\"PreToolUse\",\"cwd\":\"/ws/proj\",\"tool_name\":\"execute_bash\",\"tool_input\":{\"command\":\"ls\"}}",
+   "reply": {
+    "body": "{\"disposition\":\"allow\",\"mode\":\"enforce\",\"tier\":0,\"reason\":\"\",\"notice\":null}",
+    "content_type": "application/json",
+    "identity": [
+     "$IDENTITY"
+    ],
+    "status": 200
+   },
+   "request": {
+    "adapter": {
+     "name": "kiro",
+     "version": "0.1.8"
+    },
+    "authorization_ok": true,
+    "count": 1,
+    "method": "POST",
+    "path": "/interlock/v1/hooks/kiro"
+   }
+  },
+  {
+   "arg": "",
+   "case": "pre-ask",
+   "expect": {
+    "hook_log": "",
+    "returncode": 2,
+    "stderr": "[interlock] This action was NOT executed because it needs the user's confirmation. Reason: fixture ask: this needs the user's confirmation. Ask the user whether to proceed, and only retry after they confirm.\n",
+    "stdout": ""
+   },
+   "harness": "kiro",
+   "payload": "{\"session_id\":\"s1\",\"hook_event_name\":\"PreToolUse\",\"cwd\":\"/ws/proj\",\"tool_name\":\"execute_bash\",\"tool_input\":{\"command\":\"ls\"}}",
+   "reply": {
+    "body": "{\"disposition\":\"ask\",\"mode\":\"enforce\",\"tier\":2,\"reason\":\"fixture ask: this needs the user's confirmation\",\"notice\":null}",
+    "content_type": "application/json",
+    "identity": [
+     "$IDENTITY"
+    ],
+    "status": 200
+   },
+   "request": {
+    "adapter": {
+     "name": "kiro",
+     "version": "0.1.8"
+    },
+    "authorization_ok": true,
+    "count": 1,
+    "method": "POST",
+    "path": "/interlock/v1/hooks/kiro"
+   }
+  },
+  {
+   "arg": "",
+   "case": "pre-block",
+   "expect": {
+    "hook_log": "",
+    "returncode": 2,
+    "stderr": "[interlock] This action was refused by a security policy and was NOT executed. Reason: fixture block. You may pursue the user's goal by other legitimate means, but you MUST NOT retry this action in a disguised form.\n",
+    "stdout": ""
+   },
+   "harness": "kiro",
+   "payload": "{\"session_id\":\"s1\",\"hook_event_name\":\"PreToolUse\",\"cwd\":\"/ws/proj\",\"tool_name\":\"execute_bash\",\"tool_input\":{\"command\":\"ls\"}}",
+   "reply": {
+    "body": "{\"disposition\":\"block\",\"mode\":\"enforce\",\"tier\":2,\"reason\":\"fixture block\",\"notice\":\"[interlock] This action was refused by a security policy and was NOT executed. Reason: fixture block. You may pursue the user's goal by other legitimate means, but you MUST NOT retry this action in a disguised form.\"}",
+    "content_type": "application/json",
+    "identity": [
+     "$IDENTITY"
+    ],
+    "status": 200
+   },
+   "request": {
+    "adapter": {
+     "name": "kiro",
+     "version": "0.1.8"
+    },
+    "authorization_ok": true,
+    "count": 1,
+    "method": "POST",
+    "path": "/interlock/v1/hooks/kiro"
+   }
+  },
+  {
+   "arg": "",
+   "case": "pre-shadow",
+   "expect": {
+    "hook_log": "",
+    "returncode": 0,
+    "stderr": "",
+    "stdout": ""
+   },
+   "harness": "kiro",
+   "payload": "{\"session_id\":\"s1\",\"hook_event_name\":\"PreToolUse\",\"cwd\":\"/ws/proj\",\"tool_name\":\"execute_bash\",\"tool_input\":{\"command\":\"ls\"}}",
+   "reply": {
+    "body": "{\"disposition\":\"block\",\"mode\":\"shadow\",\"tier\":2,\"reason\":\"fixture block\",\"notice\":\"[interlock] This action was refused by a security policy and was NOT executed. Reason: fixture block. You may pursue the user's goal by other legitimate means, but you MUST NOT retry this action in a disguised form.\"}",
+    "content_type": "application/json",
+    "identity": [
+     "$IDENTITY"
+    ],
+    "status": 200
+   },
+   "request": {
+    "adapter": {
+     "name": "kiro",
+     "version": "0.1.8"
+    },
+    "authorization_ok": true,
+    "count": 1,
+    "method": "POST",
+    "path": "/interlock/v1/hooks/kiro"
+   }
+  },
+  {
+   "arg": "",
+   "case": "post-allow",
+   "expect": {
+    "hook_log": "",
+    "returncode": 0,
+    "stderr": "",
+    "stdout": ""
+   },
+   "harness": "kiro",
+   "payload": "{\"session_id\":\"s1\",\"hook_event_name\":\"PostToolUse\",\"cwd\":\"/ws/proj\",\"tool_name\":\"execute_bash\",\"tool_input\":{\"command\":\"ls\"},\"tool_response\":\"Output:\\na.py\\n\\nExit Code: 0\"}",
+   "reply": {
+    "body": "{\"disposition\":\"allow\",\"mode\":\"enforce\",\"tier\":0,\"reason\":\"\",\"notice\":null}",
+    "content_type": "application/json",
+    "identity": [
+     "$IDENTITY"
+    ],
+    "status": 200
+   },
+   "request": {
+    "adapter": {
+     "name": "kiro",
+     "version": "0.1.8"
+    },
+    "authorization_ok": true,
+    "count": 1,
+    "method": "POST",
+    "path": "/interlock/v1/hooks/kiro"
+   }
+  },
+  {
+   "arg": "",
+   "case": "post-warn",
+   "expect": {
+    "hook_log": "",
+    "returncode": 0,
+    "stderr": "",
+    "stdout": ""
+   },
+   "harness": "kiro",
+   "payload": "{\"session_id\":\"s1\",\"hook_event_name\":\"PostToolUse\",\"cwd\":\"/ws/proj\",\"tool_name\":\"execute_bash\",\"tool_input\":{\"command\":\"ls\"},\"tool_response\":\"Output:\\na.py\\n\\nExit Code: 0\"}",
+   "reply": {
+    "body": "{\"disposition\":\"warn\",\"mode\":\"enforce\",\"tier\":1,\"reason\":\"fixture warning\",\"notice\":null}",
+    "content_type": "application/json",
+    "identity": [
+     "$IDENTITY"
+    ],
+    "status": 200
+   },
+   "request": {
+    "adapter": {
+     "name": "kiro",
+     "version": "0.1.8"
+    },
+    "authorization_ok": true,
+    "count": 1,
+    "method": "POST",
+    "path": "/interlock/v1/hooks/kiro"
+   }
+  }
+ ],
+ "rendered": "template bytes as shipped in interlockd/shims at v0.1.8; installed for each harness the way `interlock init` writes it (__HARNESS__ -> harness; OpenCode __VERSION__ -> 0.1.8)",
+ "runtime": "kiro-mjs",
+ "shim": "kiro/interlock-hook.mjs",
+ "shim_sha256": "3da8ecf2dbd1b739ae5595a17e10082bf1cf6e35fde8196d7135063b044fa847",
+ "version": "0.1.8"
+}

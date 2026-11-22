@@ -20,7 +20,7 @@ import urllib.request
 from datetime import datetime
 from typing import Any
 
-from . import __version__
+from . import __version__, records
 
 log = logging.getLogger("interlockd.otel")
 
@@ -44,15 +44,38 @@ def _attr(k: str, v: Any) -> dict:
     return {"key": k, "value": {"stringValue": str(v)}}
 
 
+def _control_fields(rec: dict) -> tuple[str, str]:
+    """(tamper_kind, protection_state) of a `control` record, each taken only from its fixed set ("" otherwise),
+    so a value planted in the record cannot reach the span. Same rule as `plugin_api.Decision`."""
+    args = rec.get("arguments")
+    if rec.get("kind") != "control" or not isinstance(args, dict):
+        return "", ""
+    tk = args.get("tamper_kind")
+    record = args.get("record")
+    ps = args.get("new") if record == "protection_state" else (
+        args.get("protection_state") if record == "operator_action" else "")
+    return (tk if isinstance(tk, str) and tk in records.TAMPER_KINDS else "",
+            ps if isinstance(ps, str) and ps in records.STATES else "")
+
+
+def _rules(rec: dict) -> list[str]:
+    rules = {f.get("rule") for f in rec.get("findings") or [] if isinstance(f, dict) and f.get("rule")}
+    if rec.get("kind") == "control":       # control findings carry `control.<tamper kind>` and nothing else
+        rules = {r for r in rules if isinstance(r, str) and r.startswith("control.")
+                 and r[len("control."):] in records.TAMPER_KINDS}
+    return sorted(str(r) for r in rules)
+
+
 def span_from_record(rec: dict) -> dict:
-    """An OTLP span for one audit record (the same record the spool holds)."""
+    """An OTLP span for one audit record (the same record the spool holds). A `control` record adds only
+    `interlock.tamper_kind` and `interlock.protection_state`; its path, digests and reason are never exported."""
     sid = rec.get("session_id") or "unknown"
     trace_id = hashlib.sha256(f"interlock-session:{sid}".encode()).hexdigest()[:32]
     span_id = hashlib.sha256(f"interlock-event:{rec.get('event_id')}".encode()).hexdigest()[:16]
     start = _ns(rec.get("received_at"))
     dur_ms = float((rec.get("timing_ms") or {}).get("total") or 0.0)
     disp = rec.get("disposition", "")
-    rules = sorted({f.get("rule") for f in rec.get("findings") or [] if f.get("rule")})
+    rules = _rules(rec)
     attrs = {
         "gen_ai.operation.name": "execute_tool", "gen_ai.tool.name": rec.get("tool_name", ""),
         "gen_ai.tool.call.id": rec.get("tool_call_id") or "", "gen_ai.agent.name": rec.get("agent_type") or rec.get("adapter") or "",
@@ -64,6 +87,11 @@ def span_from_record(rec: dict) -> dict:
     }
     if rec.get("unjudged"):
         attrs["interlock.unjudged"] = list(rec["unjudged"])
+    if rec.get("kind") == "control":
+        # control records have no tool call and no workspace (records.py leaves them empty); never export one
+        attrs["gen_ai.tool.call.id"] = attrs["interlock.workspace"] = ""
+        attrs["interlock.unjudged"] = []
+        attrs["interlock.tamper_kind"], attrs["interlock.protection_state"] = _control_fields(rec)
     stopped = disp in ("block", "ask", "withhold")
     return {"traceId": trace_id, "spanId": span_id, "name": f"interlock {rec.get('kind', 'decide')} {rec.get('tool_name', '')}".strip(),
             "kind": 1, "startTimeUnixNano": str(start), "endTimeUnixNano": str(start + int(dur_ms * 1e6)),

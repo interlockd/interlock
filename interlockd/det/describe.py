@@ -48,6 +48,7 @@ WHY: dict[str, str] = {
     "persistence.ci_workflow_write": "Changing CI workflows changes what runs with your repository's secrets.",
     "persistence.cron_or_scheduler": "A scheduled job keeps running after the agent session ends.",
     "persistence.git_hook": "A git hook runs automatically on future git commands.",
+    "persistence.interlock_control": "Turning Interlock's protection off or acknowledging a tamper finding is the user's decision, not the agent's.",
     "persistence.shell_rc": "Shell startup files run on every new terminal.",
     "persistence.sudoers_or_system": "System files and sudoers control the whole machine.",
     "persistence.transcript_write": "Editing the agent's transcript rewrites the record of what the user asked.",

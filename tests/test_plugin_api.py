@@ -8,6 +8,7 @@ from __future__ import annotations
 import argparse
 import inspect
 import json
+import threading
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -28,12 +29,22 @@ def test_version_one_surface_is_complete():
     sigs = {n: list(inspect.signature(getattr(plugin_api, n)).parameters) for n in
             ("settings_from_args", "spool_dir", "load_policy", "validate_policy", "managed_policy_path",
              "check_managed_policy", "effective_policy", "daemon_status", "hook_status", "decisions",
-             "tighten_policy", "compose_policies", "lint_policy")}
+             "tighten_policy", "compose_policies", "lint_policy", "protection_status", "subscribe_protection",
+             "pin_managed_policy", "record_operator_action", "startup_report")}
     assert sigs == {"settings_from_args": ["args"], "spool_dir": ["home"], "load_policy": ["home"],
                     "validate_policy": ["data"], "managed_policy_path": ["home"],
                     "check_managed_policy": ["data", "base", "home"], "effective_policy": ["policy", "home"],
                     "daemon_status": ["daemon"], "hook_status": ["home"], "decisions": ["spool", "since", "until"],
-                    "tighten_policy": ["base", "data"], "compose_policies": ["docs"], "lint_policy": ["policy"]}
+                    "tighten_policy": ["base", "data"], "compose_policies": ["docs"], "lint_policy": ["policy"],
+                    "protection_status": ["daemon", "since"], "subscribe_protection": ["daemon", "callback"],
+                    "pin_managed_policy": ["home", "daemon"],
+                    "record_operator_action": ["home", "action", "harness", "daemon"],
+                    "startup_report": ["daemon"]}
+    assert set(plugin_api.StartupReport.__dataclass_fields__) == {"unexpected_exit", "calls_unjudged", "started_at"}
+    assert set(plugin_api.ProtectionStatus.__dataclass_fields__) == {
+        "aggregate", "harnesses", "home_reasons", "last_tamper_at", "tamper_count_since", "pinned_policy_sha256",
+        "on_disk_policy_sha256", "operator_action"}
+    assert set(plugin_api.HarnessProtection.__dataclass_fields__) == {"name", "state", "reasons", "detected_at"}
 
 
 def test_settings_and_paths(tmp_path, monkeypatch):
@@ -102,7 +113,7 @@ def test_decisions_expose_no_tool_content(tmp_path):
     fields = set(plugin_api.Decision.__dataclass_fields__)
     assert fields == {"received_at", "kind", "disposition", "findings", "judged", "session_id", "selftest",
                       "event_id", "agent", "action_class", "tier", "mode", "tool_name", "finding_severities",
-                      "policy_sha256"}
+                      "policy_sha256", "tamper_kind", "protection_state"}
     # a record full of content: none of it reaches a Decision
     secret = "SECRET-7f3a"
     spool = tmp_path / "spool"
@@ -119,6 +130,176 @@ def test_decisions_expose_no_tool_content(tmp_path):
     got = list(plugin_api.decisions(spool, datetime.now(UTC) - timedelta(days=1), datetime.now(UTC) + timedelta(days=1)))
     assert len(got) == 1 and secret not in repr(got[0])
     assert (got[0].action_class, got[0].finding_severities, got[0].agent) == ("shell", ("high",), "codex")
+    assert (got[0].tamper_kind, got[0].protection_state) == ("", "")
+
+    # one control record per Tamper_Event kind (13.8): markers in path, digests, reason and every optional field
+    from interlockd import records
+
+    lines, marks = [], {}
+    for kind in sorted(records.TAMPER_KINDS):
+        mark = f"MARK-{kind}-9c1e"
+        marks[kind] = mark
+        rec = records.tamper_event(kind, "claude-code", "/tmp/shim.sh", "a" * 64, "b" * 64)
+        rec["arguments"].update({"path": f"/home/{mark}/shim.sh", "expected_sha256": mark, "observed_sha256": mark,
+                                 "reason": mark, "observed_mode": mark, "restored_mode": mark,
+                                 "restore_error": mark, "adapter": mark, "addr": mark, "file": mark,
+                                 "pinned_sha256": mark, "on_disk_sha256": mark, "added": [mark],
+                                 "changed": [mark], "harness": mark})
+        rec.update({"reason": mark, "cwd": mark, "notice": mark, "agent_type": mark, "state": {"x": mark},
+                    "result_head": mark, "evidence": [mark], "guardrails": [mark]})
+        rec["findings"][0].update({"path": mark, "subject": mark})
+        lines.append(rec)
+    ps = records.protection_state("claude-code", "protected", "compromised", ["claude-code:shim_modified"], "x")
+    ps["arguments"].update({"reasons": ["MARK-ps-9c1e"], "caused_by": "MARK-ps-9c1e"})
+    ps["reason"] = "MARK-ps-9c1e"
+    oa = records.operator_action("ack", "", "protected")
+    oa["arguments"]["caused_by"] = "MARK-oa-9c1e"
+    bogus = records.operator_action("ack", "", "protected")
+    bogus["arguments"].update({"protection_state": "MARK-bogus-9c1e", "tamper_kind": "MARK-bogus-9c1e"})
+    lines += [ps, oa, bogus]
+    (spool / f"{datetime.now(UTC).date().isoformat()}.jsonl").write_text(
+        "".join(json.dumps(r) + "\n" for r in lines), encoding="utf-8")
+    ctl = [d for d in plugin_api.decisions(spool, datetime.now(UTC) - timedelta(days=1),
+                                           datetime.now(UTC) + timedelta(days=1)) if d.kind == "control"]
+    assert len(ctl) == len(records.TAMPER_KINDS) + 3
+    assert "9c1e" not in repr(ctl)
+    assert sorted(d.tamper_kind for d in ctl[:len(marks)]) == sorted(records.TAMPER_KINDS)
+    assert all(d.disposition == "flag" and d.findings for d in ctl[:len(marks)])
+    assert [(d.tamper_kind, d.protection_state) for d in ctl[len(marks):]] == [
+        ("", "compromised"), ("", "protected"), ("", "")]
+
+
+# ---- protection state ------------------------------------------------------------------------------------------
+
+def _protected_daemon(tmp_path, mode="enforce", managed: str | None = None):
+    from interlockd.cli import attach_integrity
+
+    s = Settings(home=tmp_path / "ih")
+    s.home.mkdir(parents=True, exist_ok=True)
+    if managed is not None:
+        plugin_api.managed_policy_path(s.home).write_text(managed, encoding="utf-8")
+    pol = Policy(); pol.mode = mode; pol.trust.workspace_roots = [str(tmp_path)]
+    d = Daemon(s, spool=Spool(s.spool_dir, fsync=False), repo=MemoryRepository(), policy=pol)
+    attach_integrity(d, s.home, None)
+    return d
+
+
+def test_protection_status_and_tamper_count(tmp_path):
+    from interlockd import records
+
+    assert plugin_api.protection_status(None) == plugin_api.ProtectionStatus("unknown", (), (), None, 0,
+                                                                             None, None, None)
+    d = _protected_daemon(tmp_path)
+    st = plugin_api.protection_status(d)
+    assert (st.aggregate, st.home_reasons, st.last_tamper_at, st.tamper_count_since) == ("protected", (), None, 0)
+
+    t0 = datetime.now(UTC) - timedelta(seconds=1)
+    rec = records.tamper_event("shim_modified", "claude-code", "/x", "a" * 64, "b" * 64)
+    d.spool.append(rec)
+    d.protection.add_reason("claude-code", "shim_modified", rec["event_id"], rec["received_at"])
+    d.protection.add_reason("home", "token_permissions", "", records.now_iso())
+    d.spool.append(records.operator_action("selftest"))
+    d.spool.append(records.token_rejected("claude-code", "127.0.0.1:7391"))     # a selftest's own rejection
+    st = plugin_api.protection_status(d, since=t0)
+    assert st.aggregate == "compromised" and st.home_reasons == ("token_permissions",)
+    assert [(h.name, h.state, h.reasons) for h in st.harnesses] == [("claude-code", "compromised", ("shim_modified",))]
+    assert st.last_tamper_at and st.harnesses[0].detected_at == (rec["received_at"],)
+    assert st.tamper_count_since == 1
+    assert plugin_api.protection_status(d, since=datetime.now(UTC) + timedelta(seconds=5)).tamper_count_since == 0
+    assert st.operator_action is None
+
+    d.protection.clear(lambda r: True, caused_by="")
+    d.protection.set_observing(True, caused_by="")
+    st = plugin_api.protection_status(d)
+    assert (st.aggregate, st.operator_action) == ("observing", "shadow")
+
+
+def test_subscribe_protection_runs_off_the_verdict_thread(tmp_path):
+    d = _protected_daemon(tmp_path)
+    got, seen = [], threading.Event()
+    main = threading.get_ident()
+
+    def cb(st):
+        got.append((st.aggregate, threading.get_ident()))
+        seen.set()
+
+    unsubscribe = plugin_api.subscribe_protection(d, cb)
+    d.protection.add_reason("home", "token_modified", "", "2026-10-17T10:00:00Z")
+    assert seen.wait(5)
+    assert got[-1][0] == "compromised" and got[-1][1] != main
+    unsubscribe()
+    seen.clear()
+    d.protection.clear(lambda r: True, caused_by="")
+    assert not seen.wait(0.3)
+    assert plugin_api.subscribe_protection(None, cb)() is None
+
+
+def test_startup_report_reads_this_starts_audit(tmp_path):
+    from interlockd import lifecycle, records
+
+    assert plugin_api.startup_report(None) == plugin_api.StartupReport(False, {}, None)
+    d = _protected_daemon(tmp_path)
+    home = d.settings.home
+    assert plugin_api.startup_report(d) == plugin_api.StartupReport(False, {}, None)       # no daemon.json yet
+    old = (datetime.now(UTC) - timedelta(hours=1)).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+    d.spool.append(records.daemon_unexpected_exit(41, "0.1.8", at=old))                   # a previous start's
+    lifecycle.write_daemon_json(home, lifecycle.daemon_json_doc("127.0.0.1:7391"))
+    rep = plugin_api.startup_report(d)
+    assert (rep.unexpected_exit, rep.calls_unjudged) == (False, {}) and rep.started_at
+    d.spool.append(records.daemon_started(False))
+    d.spool.append(records.daemon_unexpected_exit(42, "0.1.8"))
+    d.spool.append(records.calls_unjudged(unjudged=2, tamper_daemon_lost=3, span_from="2026-10-17T10:00:00Z",
+                                          span_to="2026-10-17T10:05:00Z"))
+    rep = plugin_api.startup_report(d)
+    assert rep.unexpected_exit and rep.calls_unjudged == {
+        "unjudged": 2, "tamper_token_rejected": 0, "tamper_daemon_identity": 0, "tamper_daemon_lost": 3}
+    assert "/" not in repr(rep) and "0.1.8" not in repr(rep)
+
+
+def _ops(spool_dir, action):
+    sp = Spool(spool_dir, fsync=False)
+    return [r for r in sp.iter_records() if r.get("kind") == "control"
+            and r["arguments"].get("record") == "operator_action" and r["arguments"].get("action") == action]
+
+
+def test_pin_managed_policy_without_a_daemon(tmp_path):
+    import hashlib
+
+    from interlockd import integrity
+    from interlockd.policy import pin as policy_pin
+
+    home = tmp_path / "ih"; home.mkdir()
+    body = b"mode: enforce\n"
+    plugin_api.managed_policy_path(home).write_bytes(body)
+    digest = plugin_api.pin_managed_policy(home)
+    assert digest == hashlib.sha256(body).hexdigest()
+    assert integrity.Baseline.load(home).managed_policy_file_sha256 == digest
+    assert policy_pin.pinned_copy(home, "managed", digest) == body
+    [op] = _ops(home / "spool", "console_sync")
+    assert op["arguments"]["via"] == "console"
+
+    plugin_api.record_operator_action(home, "console_sync")
+    assert len(_ops(home / "spool", "console_sync")) == 2
+    with pytest.raises(ValueError):
+        plugin_api.record_operator_action(home, "rm -rf")
+    (home / integrity.BASELINE).write_text("{not json", encoding="utf-8")
+    with pytest.raises(OSError):
+        plugin_api.pin_managed_policy(home)
+
+
+def test_pin_managed_policy_inside_the_daemon(tmp_path):
+    d = _protected_daemon(tmp_path, managed="mode: enforce\n")
+    home = d.settings.home
+    assert d.baseline.managed_policy_file_sha256                # pinned at first start
+    plugin_api.managed_policy_path(home).write_text("mode: enforce\nfail_mode: {default: closed}\n", encoding="utf-8")
+    d.policy_guard.check()                                     # an unexplained managed edit: compromised
+    assert "managed_policy_modified" in plugin_api.protection_status(d).home_reasons
+    plugin_api.managed_policy_path(home).write_text("mode: enforce\npacks: {}\n", encoding="utf-8")
+    digest = plugin_api.pin_managed_policy(home, daemon=d)
+    assert d.baseline.managed_policy_file_sha256 == digest
+    st = plugin_api.protection_status(d)
+    assert st.aggregate == "protected" and st.home_reasons == ()
+    assert len(_ops(d.spool.dir, "console_sync")) == 1
 
 
 def test_hook_status_without_init(tmp_path):
