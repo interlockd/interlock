@@ -512,7 +512,8 @@ def play(runtime: str, case: dict, shim_template: Path, *, unix_socket: bool = F
             request = None
             if reqs:
                 body = reqs[0].json()
-                adapter = json.loads(home.normalize(json.dumps(body.get("adapter")), stub))
+                adapter = {k: home.normalize(v, stub) if isinstance(v, str) else v
+                           for k, v in (body.get("adapter") or {}).items()}
                 request = {"count": len(reqs), "method": reqs[0].method, "path": reqs[0].path, "adapter": adapter,
                            "authorization_ok": reqs[0].header("Authorization") == [f"Bearer {home.token}"]}
             return outcome, request

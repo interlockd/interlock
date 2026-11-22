@@ -8,7 +8,8 @@ shim's sha256, the policy and managed-policy file digests, the token's digest an
 stat signature per file and re-reads and re-hashes a file only when the signature changes, so an unchanged
 enforcement point costs one `os.stat` for the shim, one for the hook config, and a few dictionary lookups. The
 signature includes `st_ctime_ns`, which a process cannot set back, so an in-place edit that restores the size and
-mtime (`touch -r`) is still noticed.
+mtime (`touch -r`) is still noticed. On Windows `st_ctime` is the creation time, so there the hot path can miss
+such an edit and HookWatch re-reads every enforcement point on each pass (within 10 s) instead.
 
 `token_check` and `restore_token_mode` are the token half (Requirement 8): owner-only mode on POSIX, the file ACL
 through `icacls` on Windows.

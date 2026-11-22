@@ -208,9 +208,9 @@ def wired(daemon, settings, tmp_path):
     shim = settings.home / "adapters" / "claude-code" / "interlock-hook.sh"
     shim.parent.mkdir(parents=True)
     shim.write_text(CLAUDE_SHIM_SRC.read_text(encoding="utf-8").replace("__HARNESS__", "claude-code"),
-                    encoding="utf-8")
+                    encoding="utf-8", newline="\n")
     hooks = tmp_path / "settings.json"
-    hooks.write_text(f'{{"hooks": {{"PreToolUse": [{{"hooks": [{{"command": "sh {shim}"}}]}}]}}}}', encoding="utf-8")
+    hooks.write_text(f'{{"hooks": {{"PreToolUse": [{{"hooks": [{{"command": "sh {shim}"}}]}}]}}}}', encoding="utf-8", newline="\n")
     Manifest(created_at="2026-10-18T00:00:00Z",
              hooks=[{"harness": "claude-code", "file": str(hooks), "marker": str(shim), "created": False}]).save(settings.home)
     load_or_create_token(settings.token_path)
@@ -226,7 +226,7 @@ def test_hot_path_event_is_not_recorded_again_by_the_watch(wired, settings):
     daemon, shim = wired
     w = HookWatch(daemon, settings.home)
     assert w.check() == []
-    shim.write_text(shim.read_text(encoding="utf-8") + "\nexit 0\n", encoding="utf-8")
+    shim.write_text(shim.read_text(encoding="utf-8") + "\nexit 0\n", encoding="utf-8", newline="\n")
     pre = {"session_id": "s", "hook_event_name": "PreToolUse", "cwd": "/ws/proj", "tool_name": "Bash",
            "tool_input": {"command": "ls"}}
     v = daemon.decide(normalize_claude_code(pre, agent_type="claude-code"),

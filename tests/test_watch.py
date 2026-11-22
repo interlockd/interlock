@@ -33,9 +33,9 @@ def _packaged():
 def _install(settings, tmp_path):
     shim = settings.home / "adapters" / "claude-code" / "interlock-hook.sh"
     shim.parent.mkdir(parents=True)
-    shim.write_text(_packaged(), encoding="utf-8")
+    shim.write_text(_packaged(), encoding="utf-8", newline="\n")
     hooks = tmp_path / "settings.json"
-    hooks.write_text(f'{{"hooks": {{"PreToolUse": [{{"hooks": [{{"command": "sh {shim}"}}]}}]}}}}', encoding="utf-8")
+    hooks.write_text(f'{{"hooks": {{"PreToolUse": [{{"hooks": [{{"command": "sh {shim}"}}]}}]}}}}', encoding="utf-8", newline="\n")
     Manifest(created_at="2026-10-18T00:00:00Z", hooks=[{"harness": "claude-code", "file": str(hooks), "marker": str(shim),
                                                          "created": False}]).save(settings.home)
     return hooks, shim
@@ -45,7 +45,7 @@ def test_changes_are_recorded(daemon, settings, tmp_path):
     hooks, shim = _install(settings, tmp_path)
     w = HookWatch(daemon, settings.home)
     assert w.check() == []                                         # intact at start: nothing to record
-    shim.write_text(shim.read_text(encoding="utf-8") + "\nexit 0\n", encoding="utf-8")
+    shim.write_text(shim.read_text(encoding="utf-8") + "\nexit 0\n", encoding="utf-8", newline="\n")
     [rec] = w.check()
     args = rec["arguments"]
     assert rec["kind"] == "control" and args["tamper_kind"] == "shim_modified" and rec["disposition"] == "flag"
@@ -54,11 +54,11 @@ def test_changes_are_recorded(daemon, settings, tmp_path):
     assert args["observed_sha256"] == hashlib.sha256(shim.read_bytes()).hexdigest()
     assert args["expected_sha256"] and args["expected_sha256"] != args["observed_sha256"]
     assert w.check() == []                                         # unchanged: recorded once
-    hooks.write_text("{}", encoding="utf-8")
+    hooks.write_text("{}", encoding="utf-8", newline="\n")
     [rec] = w.check()
     assert rec["arguments"]["tamper_kind"] == "hook_removed" and rec["arguments"]["path"] == str(hooks)
-    shim.write_text(_packaged(), encoding="utf-8")
-    hooks.write_text(f'{{"command": "sh {shim}"}}', encoding="utf-8")
+    shim.write_text(_packaged(), encoding="utf-8", newline="\n")
+    hooks.write_text(f'{{"command": "sh {shim}"}}', encoding="utf-8", newline="\n")
     [rec] = w.check()
     assert rec["arguments"]["record"] == "hook_restored" and rec["arguments"]["previous"] == "hook_removed"
     assert rec["disposition"] == "allow" and rec["findings"] == []
@@ -70,7 +70,7 @@ def test_changes_are_recorded(daemon, settings, tmp_path):
 
 def test_first_check_records_existing_problems(daemon, settings, tmp_path):
     hooks, _ = _install(settings, tmp_path)
-    hooks.write_text("{}", encoding="utf-8")
+    hooks.write_text("{}", encoding="utf-8", newline="\n")
     [rec] = HookWatch(daemon, settings.home).check()
     assert rec["arguments"]["tamper_kind"] == "hook_removed"
 
@@ -78,7 +78,7 @@ def test_first_check_records_existing_problems(daemon, settings, tmp_path):
 def test_upgrade_leftovers_are_refreshed_not_flagged(daemon, settings, tmp_path):
     _, shim = _install(settings, tmp_path)
     current = shim.read_text(encoding="utf-8")
-    shim.write_text(current.replace('VERSION="', 'VERSION="0.0.9-', 1), encoding="utf-8")
+    shim.write_text(current.replace('VERSION="', 'VERSION="0.0.9-', 1), encoding="utf-8", newline="\n")
     assert HookWatch(daemon, settings.home).check() == []
     assert shim.read_text(encoding="utf-8") == current
 
@@ -86,7 +86,7 @@ def test_upgrade_leftovers_are_refreshed_not_flagged(daemon, settings, tmp_path)
 def test_refresh_waits_for_a_restart_when_the_package_is_newer(daemon, settings, tmp_path, monkeypatch):
     _, shim = _install(settings, tmp_path)
     leftover = shim.read_text(encoding="utf-8").replace('VERSION="', 'VERSION="0.0.9-', 1)
-    shim.write_text(leftover, encoding="utf-8")
+    shim.write_text(leftover, encoding="utf-8", newline="\n")
     monkeypatch.setattr(watch, "__version__", "9.9.9")             # the running daemon is not the installed package
     assert not watch.packaged_shims_current()
     assert HookWatch(daemon, settings.home).check() == []
@@ -169,7 +169,7 @@ def test_modified_shim_is_repaired_and_stays_compromised(daemon, settings, tmp_p
     _, shim = _wired(daemon, settings, tmp_path)
     w = HookWatch(daemon, settings.home)
     assert w.check() == []
-    shim.write_text(_packaged() + "\nexit 0\n", encoding="utf-8")
+    shim.write_text(_packaged() + "\nexit 0\n", encoding="utf-8", newline="\n")
     tampered = hashlib.sha256(shim.read_bytes()).hexdigest()
     recs = w.check()
     assert _kinds(recs) == ["shim_modified", "shim_repaired"]
@@ -179,7 +179,7 @@ def test_modified_shim_is_repaired_and_stays_compromised(daemon, settings, tmp_p
     assert daemon.protection.harness_state("claude-code") == "compromised"            # until ack / init
     assert w.check() == []                                         # intact again, reason kept, nothing new
     assert _reasons(daemon) == {"claude-code:shim_modified"}
-    shim.write_text(_packaged() + "\nexit 0\n", encoding="utf-8")  # the same edit again: a new condition
+    shim.write_text(_packaged() + "\nexit 0\n", encoding="utf-8", newline="\n")  # the same edit again: a new condition
     assert _kinds(w.check()) == ["shim_modified", "shim_repaired"]
     assert daemon.spool.verify()["ok"]
 
@@ -190,7 +190,7 @@ def test_repair_failure_is_recorded_once_and_retried(daemon, settings, tmp_path)
     _, shim = _wired(daemon, settings, tmp_path)
     w = HookWatch(daemon, settings.home)
     w.check()
-    shim.write_text(_packaged() + "\nexit 0\n", encoding="utf-8")
+    shim.write_text(_packaged() + "\nexit 0\n", encoding="utf-8", newline="\n")
     os.chmod(shim.parent, 0o500)                                   # no temp file can be created next to the shim
     try:
         recs = w.check()
@@ -221,7 +221,7 @@ def test_removed_hook_is_one_event_and_left_untouched(daemon, settings, tmp_path
 def test_reason_already_open_is_not_recorded_twice(daemon, settings, tmp_path):
     """Restored from protection-state.json (or raised on the hot path): the event exists; the shim is still repaired."""
     _, shim = _wired(daemon, settings, tmp_path)
-    shim.write_text(_packaged() + "\nexit 0\n", encoding="utf-8")
+    shim.write_text(_packaged() + "\nexit 0\n", encoding="utf-8", newline="\n")
     daemon.protection.add_reason("claude-code", "shim_modified", "", records.now_iso())
     assert _kinds(HookWatch(daemon, settings.home).check()) == ["shim_repaired"]
 
@@ -269,7 +269,7 @@ def test_widened_mode_on_a_modified_token_does_not_repeat_the_digest_event(daemo
     _wired(daemon, settings, tmp_path)
     w = HookWatch(daemon, settings.home)
     assert w.check() == []
-    settings.token_path.write_text("tok-A\n", encoding="utf-8")
+    settings.token_path.write_text("tok-A\n", encoding="utf-8", newline="\n")
     os.chmod(settings.token_path, 0o600)
     assert _kinds(w.check()) == ["token_modified"]
     os.chmod(settings.token_path, 0o001)
@@ -283,7 +283,7 @@ def test_failed_restore_keeps_the_digest_fingerprint(daemon, settings, tmp_path,
     _wired(daemon, settings, tmp_path)
     w = HookWatch(daemon, settings.home)
     w.check()
-    settings.token_path.write_text("tok-A\n", encoding="utf-8")
+    settings.token_path.write_text("tok-A\n", encoding="utf-8", newline="\n")
     os.chmod(settings.token_path, 0o600)
     assert _kinds(w.check()) == ["token_modified"]
     with monkeypatch.context() as mp:
@@ -299,14 +299,14 @@ def test_token_digest_and_presence(daemon, settings, tmp_path):
     w = HookWatch(daemon, settings.home)
     w.check()
     pinned = daemon.baseline.token_sha256
-    settings.token_path.write_text("other\n", encoding="utf-8")
+    settings.token_path.write_text("other\n", encoding="utf-8", newline="\n")
     os.chmod(settings.token_path, 0o600)
     [rec] = w.check()
     assert rec["arguments"]["tamper_kind"] == "token_modified"
     assert rec["arguments"]["expected_sha256"] == pinned
     assert rec["arguments"]["observed_sha256"] == hashlib.sha256(b"other\n").hexdigest()
     assert w.check() == []
-    settings.token_path.write_text("third\n", encoding="utf-8")
+    settings.token_path.write_text("third\n", encoding="utf-8", newline="\n")
     assert _kinds(w.check()) == ["token_modified"]                 # a second, different digest
     settings.token_path.unlink()
     assert _kinds(w.check()) == ["token_missing"]
@@ -320,7 +320,7 @@ def test_operator_explained_token_change_moves_the_baseline(daemon, settings, tm
     w = HookWatch(daemon, settings.home)
     w.check()
     daemon.operator_actions.add(records.operator_action("token_rotate"))
-    settings.token_path.write_text("rotated\n", encoding="utf-8")
+    settings.token_path.write_text("rotated\n", encoding="utf-8", newline="\n")
     os.chmod(settings.token_path, 0o600)
     assert w.check() == []
     want = hashlib.sha256(b"rotated\n").hexdigest()
@@ -333,7 +333,7 @@ def test_operator_explained_shim_change_is_rebaselined_not_repaired(daemon, sett
     w = HookWatch(daemon, settings.home)
     w.check()
     daemon.operator_actions.add(records.operator_action("init"))
-    shim.write_text(_packaged() + "\n# local\n", encoding="utf-8")
+    shim.write_text(_packaged() + "\n# local\n", encoding="utf-8", newline="\n")
     assert w.check() == [] and w.check() == []
     assert shim.read_text(encoding="utf-8").endswith("# local\n")  # the Operator's change stays
     assert daemon.baseline.shims["claude_code"] == hashlib.sha256(shim.read_bytes()).hexdigest()
@@ -351,7 +351,7 @@ def test_missing_identity_is_rewritten_from_memory(daemon, settings, tmp_path):
     assert identity.read(settings.home) == daemon.identity
     assert daemon.identity not in str(rec)
     assert w.check() == []
-    (settings.home / identity.FILE).write_text("0" * 32 + "\n", encoding="utf-8")      # altered: rewritten too
+    (settings.home / identity.FILE).write_text("0" * 32 + "\n", encoding="utf-8", newline="\n")      # altered: rewritten too
     assert _kinds(w.check()) == ["identity_missing"]
     assert identity.read(settings.home) == daemon.identity
     assert _reasons(daemon) == {"home:identity_missing"}
@@ -365,3 +365,31 @@ def test_pass_runs_policy_guard_and_summaries(daemon, settings, tmp_path, monkey
     monkeypatch.setattr(integrity, "token_check", lambda *a: (_ for _ in ()).throw(RuntimeError("boom")))
     HookWatch(daemon, settings.home).check()                       # a failing step does not stop the others
     assert calls == ["policy", "summaries"]
+
+
+def test_watch_rereads_every_pass_on_windows(daemon, settings, monkeypatch):
+    """Windows has no change time in os.stat (st_ctime is the creation time), so the Verifier's stat cache cannot see
+    an in-place edit that restores size and mtime; each watch pass drops the cache and re-reads instead."""
+    from interlockd import integrity
+
+    calls = []
+
+    class Spy:
+        def invalidate(self):
+            calls.append("invalidate")
+
+        def verify(self, name, reported):
+            return integrity.Verification(harness=name, problem="")
+
+    w = HookWatch(daemon, settings.home)
+    from interlockd.watch import _Pass
+
+    p = _Pass(at="2026-10-17T10:00:00Z")
+    monkeypatch.setattr(w, "_baseline", lambda: None)
+    monkeypatch.setattr(w, "_meta", lambda p: {})
+    daemon.verifier = Spy()
+    for windows, want in ((False, []), (True, ["invalidate"])):
+        calls.clear()
+        monkeypatch.setattr(integrity, "_WINDOWS", windows)
+        w._verify_all(p, [{"harness": "claude-code", "file": "x", "marker": "y"}])
+        assert calls == want

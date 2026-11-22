@@ -97,10 +97,10 @@ def _home(root: Path):
     daemon = Daemon(settings, spool=Spool(settings.spool_dir), repo=MemoryRepository())
     shim = home / "adapters" / HARNESS / "interlock-hook.sh"
     shim.parent.mkdir(parents=True)
-    shim.write_text(CLAUDE_SHIM_SRC.read_text(encoding="utf-8").replace("__HARNESS__", HARNESS), encoding="utf-8")
+    shim.write_text(CLAUDE_SHIM_SRC.read_text(encoding="utf-8").replace("__HARNESS__", HARNESS), encoding="utf-8", newline="\n")
     hooks = root / "agent" / "settings.json"
     hooks.parent.mkdir()
-    hooks.write_text(f'{{"hooks": {{"PreToolUse": [{{"hooks": [{{"command": "sh {shim}"}}]}}]}}}}', encoding="utf-8")
+    hooks.write_text(f'{{"hooks": {{"PreToolUse": [{{"hooks": [{{"command": "sh {shim}"}}]}}]}}}}', encoding="utf-8", newline="\n")
     Manifest(created_at="2026-10-18T00:00:00Z",
              hooks=[{"harness": HARNESS, "file": str(hooks), "marker": str(shim), "created": False}]).save(home)
     load_or_create_token(settings.token_path)
@@ -159,10 +159,10 @@ def test_one_event_per_distinct_observed_condition(steps: list[Step]) -> None:
                 (settings.home / identity.FILE).unlink()
                 pending.add((HOME, "identity_missing"))
             elif step.op == "identity_alter":
-                (settings.home / identity.FILE).write_text(str(step.arg), encoding="utf-8")
+                (settings.home / identity.FILE).write_text(str(step.arg), encoding="utf-8", newline="\n")
                 pending.add((HOME, "identity_missing"))
             elif step.op == "shim_edit":
-                shim.write_text(shim.read_text(encoding="utf-8") + str(step.arg), encoding="utf-8")
+                shim.write_text(shim.read_text(encoding="utf-8") + str(step.arg), encoding="utf-8", newline="\n")
                 pending.add((HARNESS, "shim_modified"))
 
             for n in range(step.passes):

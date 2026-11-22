@@ -34,7 +34,7 @@ class Env:
     def __init__(self, home: Path, policy: str | None = POLICY, *, pin_now: bool = True):
         self.home = home
         if policy is not None:
-            (home / "policy.yaml").write_text(policy, encoding="utf-8")
+            (home / "policy.yaml").write_text(policy, encoding="utf-8", newline="\n")
         self.spool = Spool(home / "spool", fsync=False)
         self.baseline = Baseline(created_at="2026-10-17T09:00:00Z", version="0")
         self.baseline.save(home)
@@ -52,7 +52,7 @@ class Env:
         return {r.reason for r in self.protection.reasons() if r.subject == HOME}
 
     def write(self, text: str, name: str = "policy.yaml") -> None:
-        (self.home / name).write_text(text, encoding="utf-8")
+        (self.home / name).write_text(text, encoding="utf-8", newline="\n")
 
 
 def _sha(text: str) -> str:
@@ -200,9 +200,9 @@ def test_deny_all_without_a_usable_pinned_copy(home, damage):
     if damage == "absent":
         copy.unlink()
     elif damage == "tampered":
-        copy.write_text("mode: shadow\n")
+        copy.write_text("mode: shadow\n", newline="\n")
     else:                                   # pinned digest names an unparseable copy
-        copy.write_text("mode: [unclosed\n")
+        copy.write_text("mode: [unclosed\n", newline="\n")
         env.baseline.policy_file_sha256 = _sha("mode: [unclosed\n")
     env.write("mode: shadow\n# edited\n")
     load = pp.load_for_daemon(_settings(home), env.baseline)
@@ -239,7 +239,7 @@ def test_deny_all_lifts_once_the_file_is_accepted(home):
 def test_without_a_baseline_the_pinned_copy_is_the_pin(home):
     Env(home)
     (home / "integrity-baseline.json").unlink()
-    (home / "policy.yaml").write_text("mode: shadow\n")
+    (home / "policy.yaml").write_text("mode: shadow\n", newline="\n")
     load = pp.load_for_daemon(_settings(home), None)
     assert (load.source, load.policy.mode) == ("pinned", "enforce")
 
@@ -279,7 +279,7 @@ def test_managed_change_serves_the_pinned_copy_until_the_console_sync(home, monk
 
 def test_managed_policy_without_a_guard_is_unchanged(home, monkeypatch):
     monkeypatch.setattr(mp, "STAT_TTL_S", 0.0)
-    (home / mp.FILE_NAME).write_text(MANAGED)
+    (home / mp.FILE_NAME).write_text(MANAGED, newline="\n")
     pol, prov = mp.ManagedPolicy(home).resolve(Policy())
     assert pol.mode == "enforce" and prov["path"] == str(mp.managed_path(home))
 
@@ -352,7 +352,7 @@ def test_attach_integrity_reports_a_modified_policy_before_serving(home):
 
     Env(home)                                          # pinned POLICY, baseline saved
     (home / "integrity-baseline.json").unlink()        # a deleted baseline must not accept the edit
-    (home / "policy.yaml").write_text("mode: shadow\n")
+    (home / "policy.yaml").write_text("mode: shadow\n", newline="\n")
     s = _settings(home)
     load = pp.load_for_daemon(s, Baseline.load(home))
     d = Daemon(s, spool=Spool(s.spool_dir, fsync=False), policy=load.policy)

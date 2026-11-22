@@ -467,6 +467,10 @@ class HookWatch:
         base = self._baseline()
         current: dict[str, str] = {}
         m = self._meta(p)
+        if integrity._WINDOWS:
+            # st_ctime is the creation time on Windows, so the Verifier's stat signature cannot see an in-place
+            # edit that restores size and mtime; each pass re-reads every shim and hook config instead.
+            self.daemon.verifier.invalidate()
         for name in dict.fromkeys(hk["harness"] for hk in rows):
             entries = [hk for hk in rows if hk["harness"] == name]
             p.subjects.add(name)

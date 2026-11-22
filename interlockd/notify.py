@@ -76,6 +76,9 @@ def message(subject: str, reason: str) -> str:
     return f"Protection for {subject} is compromised ({reason}). Run interlock doctor."
 
 
+_NOTIFY_SEND_PLATFORMS = ("linux", "freebsd", "openbsd", "netbsd", "dragonfly", "sunos", "aix", "cygwin")
+
+
 def command(platform: str, title: str, text: str) -> tuple[str, list[str], dict[str, str] | None] | None:
     """(tool, argv, extra environment) for the platform, or None when the platform has no notifier."""
     if platform == "darwin":
@@ -88,7 +91,7 @@ def command(platform: str, title: str, text: str) -> tuple[str, list[str], dict[
         argv = ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
                 "-EncodedCommand", encoded]
         return "powershell", argv, {_ENV_TITLE: title, _ENV_TEXT: text}
-    if os.name == "posix":
+    if platform.startswith(_NOTIFY_SEND_PLATFORMS):          # by the platform given, not the host running this
         return "notify-send", ["notify-send", "--app-name", TITLE, "--", title, text], None
     return None
 

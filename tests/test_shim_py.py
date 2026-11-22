@@ -169,7 +169,8 @@ def test_daemon_lost_fails_closed(daemon_home, tmp_path, harness, arg):
     rc, out, err = _py(tmp_path, harness, PRE_CLAUDE, daemon_home, DOWN, arg, INTERLOCK_FAIL_MODE="open")
     msg = _refused(harness, rc, out, err)
     assert "Interlock daemon stopped unexpectedly (daemon_lost)" in msg and "`interlock start`" in msg
-    assert "interlock doctor" in msg and json.dumps(str(daemon_home))[1:-1] in msg
+    home_text = str(daemon_home) if harness in ("windsurf", "kiro") else json.dumps(str(daemon_home))[1:-1]
+    assert "interlock doctor" in msg and home_text in msg
     _fail_mode(daemon_home, "closed", "open")                     # tamper open: logged, no opinion
     rc, out, err = _py(tmp_path, harness, PRE_CLAUDE, daemon_home, DOWN, arg)
     assert not _refused(harness, rc, out, err) and "[interlock]" not in err

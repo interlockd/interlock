@@ -1,4 +1,8 @@
 import json
+import os
+import subprocess
+import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -20,6 +24,28 @@ PRE_BASH = {
 POST_BASH = {**PRE_BASH, "hook_event_name": "PostToolUse", "tool_response": "Output:\n M a.py\n\nExit Code: 0"}
 PRE_READ = {"session_id": SESSION, "hook_event_name": "PreToolUse", "cwd": "/ws/proj",
             "tool_name": "read_file", "tool_input": {"path": "src/a.py", "offset": None, "limit": None}}
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _owner_only_temp_root(tmp_path_factory):
+    """Windows: make the suite's temporary root owner-only (the user, SYSTEM and Administrators, inherited by every
+    file below it), as a user profile is, and point `tempfile` at it. The runner's own temp folder grants more, and
+    every token a test writes would then be flagged `token_permissions`. Tests of the ACL check fake `icacls`."""
+    if sys.platform != "win32":
+        yield
+        return
+    base = tmp_path_factory.getbasetemp()          # every tmp_path is created below it
+    user = os.environ.get("USERNAME", "")
+    subprocess.run(["icacls", str(base), "/inheritance:r", "/grant:r", f"{user}:(OI)(CI)F", "*S-1-5-18:(OI)(CI)F",
+                    "*S-1-5-32-544:(OI)(CI)F"], capture_output=True, check=True, timeout=30)
+    root = base / "tempfile"
+    root.mkdir(exist_ok=True)
+    before = tempfile.tempdir
+    tempfile.tempdir = str(root)
+    try:
+        yield
+    finally:
+        tempfile.tempdir = before
 
 
 @pytest.fixture

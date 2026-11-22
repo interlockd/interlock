@@ -1,0 +1,3 @@
+# The 0.1.8 shim fixtures are compared byte for byte (sha256) with their recordings: never convert line endings,
+# including on Windows checkouts with core.autocrlf.
+tests/fixtures/shims-0.1.8/** -text

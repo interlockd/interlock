@@ -62,7 +62,7 @@ def test_cli(settings, monkeypatch, capsys):
     assert main(["pause", "--agent", "mcp-proxy", "--minutes", "5", "--reason", "drill"]) == 0
     st = PauseState(settings.home).current()
     assert st["agents"] == ["mcp-proxy"] and st["until"] and st["reason"] == "drill"
-    assert stat.S_IMODE((settings.home / "pause.json").stat().st_mode) == 0o600
+    assert os.name == "nt" or stat.S_IMODE((settings.home / "pause.json").stat().st_mode) == 0o600
     assert "paused mcp-proxy" in capsys.readouterr().out
     assert main(["resume"]) == 0 and not (settings.home / "pause.json").exists()
 
@@ -73,7 +73,7 @@ def test_pause_file_is_a_flat_escape_free_state_file(settings):
     state = pause(settings.home, agents=agents, minutes=5, reason=reason)
     path = settings.home / "pause.json"
     raw = path.read_text(encoding="ascii")
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600 and "\\" not in raw and raw.endswith("}\n")
+    assert (os.name == "nt" or stat.S_IMODE(path.stat().st_mode) == 0o600) and "\\" not in raw and raw.endswith("}\n")
     assert statefile.read_state(path, {"since": str, "agents": str, "reason": str}) is not None
     view = PauseState(settings.home).current()
     assert view == state and view["reason"] == reason and view["agents"] == sorted(agents)

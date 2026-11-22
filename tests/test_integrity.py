@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import dataclasses
 import hashlib
 import os
 import stat
 import sys
 import threading
+from pathlib import Path
 
 import pytest
 
@@ -29,14 +31,14 @@ def install(tmp_path):
     home = tmp_path / "home"
     shim = home / "adapters" / "claude-code" / "interlock-hook.sh"
     shim.parent.mkdir(parents=True)
-    shim.write_text(_shim_text(), encoding="utf-8")
+    shim.write_text(_shim_text(), encoding="utf-8", newline="\n")
     cfg = tmp_path / "settings.json"
-    cfg.write_text(f'{{"hooks": {{"PreToolUse": [{{"hooks": [{{"command": "sh {shim}"}}]}}]}}}}', encoding="utf-8")
+    cfg.write_text(f'{{"hooks": {{"PreToolUse": [{{"hooks": [{{"command": "sh {shim}"}}]}}]}}}}', encoding="utf-8", newline="\n")
     man = Manifest(hooks=[{"harness": "claude-code", "file": str(cfg), "marker": str(shim), "created": False}])
     man.save(home)
-    (home / "token").write_text("t0ken-value\n", encoding="utf-8")
+    (home / "token").write_text("t0ken-value\n", encoding="utf-8", newline="\n")
     os.chmod(home / "token", 0o600)
-    (home / "policy.yaml").write_text("version: 1\nmode: shadow\n", encoding="utf-8")
+    (home / "policy.yaml").write_text("version: 1\nmode: shadow\n", encoding="utf-8", newline="\n")
     base = Baseline.from_disk(home, man)
     assert base.save(home)
     holder = {"man": man, "base": base}
@@ -56,7 +58,8 @@ def test_baseline_round_trip_flat_owner_only(install):
     assert '"shim_claude_code": "' + hashlib.sha256(shim.read_bytes()).hexdigest() + '"' in text
     assert '"hook_claude_code": "' in text and "{" not in text[1:]          # flat: no nested object
     loaded = Baseline.load(home)
-    assert loaded == holder["base"]
+    want = holder["base"]
+    assert loaded == dataclasses.replace(want, hooks={k: integrity._storable_path(v) for k, v in want.hooks.items()})
     assert loaded.token_sha256 == hashlib.sha256(b"t0ken-value\n").hexdigest()
     assert loaded.policy_file_sha256 == hashlib.sha256((home / "policy.yaml").read_bytes()).hexdigest()
     assert loaded.managed_policy_file_sha256 == ""                         # absent file
@@ -77,7 +80,7 @@ def test_baseline_bad_digest_is_unreadable(tmp_path):
     errors = []
     Baseline(shims={"claude_code": "a" * 64}).save(tmp_path)
     p = tmp_path / integrity.BASELINE
-    p.write_text(p.read_text(encoding="ascii").replace("a" * 64, "nothex"), encoding="ascii")
+    p.write_text(p.read_text(encoding="ascii").replace("a" * 64, "nothex"), encoding="ascii", newline="\n")
     os.chmod(p, 0o600)
     assert Baseline.load(tmp_path, lambda f, r: errors.append(r)) is None
     assert errors == ["state_unreadable:bad_digest"]
@@ -85,7 +88,7 @@ def test_baseline_bad_digest_is_unreadable(tmp_path):
 
 def test_from_disk_keeps_previous_token_digest_and_load_or_create(install):
     home, _, _, _, holder = install
-    (home / "token").write_text("rotated\n", encoding="utf-8")
+    (home / "token").write_text("rotated\n", encoding="utf-8", newline="\n")
     b = Baseline.from_disk(home, holder["man"], previous=holder["base"])
     assert b.token_sha256_previous == holder["base"].token_sha256
     assert b.token_sha256 == hashlib.sha256(b"rotated\n").hexdigest()
@@ -102,7 +105,7 @@ def test_from_disk_keeps_previous_token_digest_and_load_or_create(install):
 def test_intact_and_version_line_only_difference(install):
     _, shim, _, v, _ = install
     assert v.verify("claude-code").problem == ""
-    shim.write_text(_shim_text("0.0.9"), encoding="utf-8")                # an upgrade leaves only this difference
+    shim.write_text(_shim_text("0.0.9"), encoding="utf-8", newline="\n")                # an upgrade leaves only this difference
     assert v.verify("claude-code").problem == ""
 
 
@@ -115,7 +118,7 @@ def test_crlf_shim_is_intact(install):
 
 def test_shim_modified(install):
     _, shim, _, v, holder = install
-    shim.write_text(_shim_text() + "\nexit 0\n", encoding="utf-8")
+    shim.write_text(_shim_text() + "\nexit 0\n", encoding="utf-8", newline="\n")
     res = v.verify("claude-code")
     assert res.problem == "shim_modified" and res.path == str(shim)
     assert res.expected_sha256 == holder["base"].shims["claude_code"]
@@ -141,7 +144,7 @@ def test_shim_replaced_by_directory_is_modified(install):
 def test_hook_removed_variants(install, variant):
     _, _, cfg, v, _ = install
     if variant == "edited":
-        cfg.write_text('{"hooks": {}}', encoding="utf-8")
+        cfg.write_text('{"hooks": {}}', encoding="utf-8", newline="\n")
     elif variant == "deleted":
         cfg.unlink()
     elif variant == "directory":
@@ -162,8 +165,8 @@ def test_hook_removed_variants(install, variant):
 
 def test_hook_removed_comes_first_and_all_problems_listed(install):
     _, shim, cfg, v, _ = install
-    cfg.write_text("{}", encoding="utf-8")
-    shim.write_text("echo pwned\n", encoding="utf-8")
+    cfg.write_text("{}", encoding="utf-8", newline="\n")
+    shim.write_text("echo pwned\n", encoding="utf-8", newline="\n")
     res = v.verify("claude-code", "/elsewhere/hook.sh")
     assert res.problem == "hook_removed"
     assert res.problems == ("hook_removed", "shim_modified", "shim_relocated")
@@ -171,7 +174,7 @@ def test_hook_removed_comes_first_and_all_problems_listed(install):
 
 def test_opencode_plugin_file_is_its_own_hook_config(tmp_path):
     plugin = tmp_path / "interlock.js"
-    plugin.write_text("// plugin without its own path\n", encoding="utf-8")
+    plugin.write_text("// plugin without its own path\n", encoding="utf-8", newline="\n")
     man = Manifest(hooks=[{"harness": "opencode", "file": str(plugin), "marker": str(plugin), "created": True}])
     base = Baseline(shims={"opencode": hashlib.sha256(plugin.read_bytes()).hexdigest()})
     assert Verifier(tmp_path, lambda: man, lambda: base).verify("opencode").problem == ""
@@ -196,7 +199,7 @@ def test_reported_shim_path_is_compared_canonically(install, tmp_path):
     assert v.verify("claude-code", str(linked_dir / shim.name)).problem == ""
     assert v.verify("claude-code", None).problem == ""                 # pre-0.2 shim: no path, no relocation
     other = tmp_path / "other.sh"
-    other.write_text(_shim_text(), encoding="utf-8")
+    other.write_text(_shim_text(), encoding="utf-8", newline="\n")
     res = v.verify("claude-code", str(other))
     assert res.problem == "shim_relocated" and res.path == str(shim)  # never the request's string
     assert v.verify("claude-code", "bad\x00path").problem == "shim_relocated"
@@ -220,7 +223,7 @@ def test_stat_cache_rereads_only_on_change(install, monkeypatch):
     assert reads == [str(shim)]
 
     reads.clear()
-    cfg.write_text(cfg.read_text(encoding="utf-8") + " ", encoding="utf-8")  # size
+    cfg.write_text(cfg.read_text(encoding="utf-8") + " ", encoding="utf-8", newline="\n")  # size
     v.verify("claude-code")
     assert reads == [str(cfg)]
 
@@ -240,6 +243,7 @@ def test_stat_cache_rereads_only_on_change(install, monkeypatch):
     assert sorted(reads) == sorted([str(shim), str(cfg)])
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="st_ctime is the creation time on Windows (see test_watch_rereads_every_pass_on_windows)")
 def test_in_place_edit_with_restored_mtime_is_caught(install):
     _, shim, _, v, _ = install
     assert v.verify("claude-code").problem == ""
@@ -254,7 +258,7 @@ def test_in_place_edit_with_restored_mtime_is_caught(install):
 
 def test_pin_change_rechecks_cached_shim(install):
     _, shim, _, v, holder = install
-    shim.write_text("echo replaced\n", encoding="utf-8")
+    shim.write_text("echo replaced\n", encoding="utf-8", newline="\n")
     assert v.verify("claude-code").problem == "shim_modified"
     holder["base"] = Baseline(shims={"claude_code": hashlib.sha256(shim.read_bytes()).hexdigest()})  # `ack`
     assert v.verify("claude-code").problem == ""
@@ -275,11 +279,11 @@ def test_verifier_is_thread_safe(install):
 def test_cached_loader_keeps_last_good_value(tmp_path):
     p = tmp_path / "install-manifest.json"
     clock = [0.0]
-    p.write_text('{"hooks": []}', encoding="utf-8")
+    p.write_text('{"hooks": []}', encoding="utf-8", newline="\n")
     load = cached_loader(p, lambda: Manifest.load(tmp_path), ttl_s=1.0, clock=lambda: clock[0])
     first = load()
     assert isinstance(first, Manifest)
-    p.write_text("{not json", encoding="utf-8")
+    p.write_text("{not json", encoding="utf-8", newline="\n")
     assert load() is first                                              # within the TTL: no stat
     clock[0] = 5.0
     assert load() is first                                              # unparseable: last good value
@@ -294,7 +298,7 @@ def test_cached_loader_keeps_last_good_value(tmp_path):
 def test_token_intact_modified_missing(install):
     home, _, _, _, holder = install
     assert token_check(home, holder["base"]) == ("", {})
-    (home / "token").write_text("swapped\n", encoding="utf-8")
+    (home / "token").write_text("swapped\n", encoding="utf-8", newline="\n")
     os.chmod(home / "token", 0o600)
     kind, detail = token_check(home, holder["base"])
     assert kind == "token_modified" and detail == {"observed_sha256": hashlib.sha256(b"swapped\n").hexdigest()}
@@ -376,3 +380,21 @@ def test_windows_acl_unreadable_is_reported(install, monkeypatch):
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX chmod path")
 def test_restore_token_mode_reports_errno(tmp_path):
     assert integrity.restore_token_mode(tmp_path / "absent").startswith("chmod_failed:")
+
+
+def test_new_and_rotated_tokens_are_made_owner_only_on_windows(tmp_path, monkeypatch):
+    """Windows ignores the 0o600 passed to os.open, so the token would inherit its folder's ACL; it is reset to the
+    owner, SYSTEM and Administrators when created and before a rotated token replaces the old one."""
+    from interlockd import auth
+
+    made = []
+    monkeypatch.setattr(auth.sys, "platform", "win32")
+    monkeypatch.setattr(integrity, "restore_token_mode", lambda p: made.append(Path(p).name))
+    path = tmp_path / "token"
+    auth.load_or_create_token(path)
+    auth.load_or_create_token(path)                                      # existing token: left as it is
+    auth.rotate_token(path)
+    assert made == ["token", "token.new"] and not (tmp_path / "token.new").exists()
+    monkeypatch.setattr(auth.sys, "platform", "linux")
+    auth.rotate_token(path)
+    assert made == ["token", "token.new"]
