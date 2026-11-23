@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 RuleAction = Literal["block", "ask", "flag", "allow", "model"]
 
@@ -26,7 +26,7 @@ class Trust(Strict):
         ".git/hooks/**", ".kiro/**", ".claude/**", ".codex/**", ".github/workflows/**", ".interlock/**",
     ])
     sensitive_paths: list[str] = Field(default_factory=lambda: [
-        "~/.ssh/**", "~/.aws/**", "~/.config/gh/**", "~/.interlock/token", "~/.netrc", "~/.npmrc", "~/.pypirc",
+        "~/.ssh/**", "~/.aws/**", "~/.config/gh/**", "~/.interlock/token", "~/.interlock/identity", "~/.netrc", "~/.npmrc", "~/.pypirc",
         "~/.docker/config.json", "~/.kube/config", "**/.env", "**/.env.*", "**/*.pem", "**/id_rsa*", "**/id_ed25519*",
         "**/*.key", "**/credentials", "**/credentials.json", "**/serviceAccountKey.json",
     ])
@@ -158,6 +158,13 @@ class TestThresholds(Strict):
     categories: dict[str, dict[str, float]] = Field(default_factory=dict)
 
 
+class Notify(Strict):
+    desktop: bool = False      # an OS notification when protection becomes compromised (Requirement 6.6)
+
+
+FAIL_MODES = ("open", "closed")
+
+
 class Policy(Strict):
     version: int = 1
     workspace: str = ""
@@ -176,9 +183,24 @@ class Policy(Strict):
     fail_mode: dict[str, str] = Field(default_factory=lambda: {
         "security.data_exfiltration": "closed", "security.malicious_command": "closed", "security.persistence": "closed",
         "security.secret_leak.*": "closed", "security.privilege_escalation": "closed", "default": "open",
+        "tamper": "closed",
     })
+    notify: Notify = Field(default_factory=Notify)
     source_paths: list[str] = Field(default_factory=list)   # filled by the loader, not user-set
     sha256: str = ""                                          # filled by the loader
+
+    @field_validator("fail_mode", mode="before")
+    @classmethod
+    def _fail_mode_tamper(cls, v: Any) -> Any:
+        """`fail_mode.tamper`: what a shim does when the cause is tampering or an unexplained daemon loss (Req 4.1).
+        Only open or closed; absent means closed, so every loaded policy carries the key."""
+        if not isinstance(v, dict):
+            return v                                   # the dict[str, str] type check reports it
+        if "tamper" not in v:
+            return {**v, "tamper": "closed"}
+        if v["tamper"] not in FAIL_MODES:
+            raise ValueError(f"fail_mode.tamper: {v['tamper']} is not one of open, closed")
+        return v
 
     def rule_action(self, rule_id: str, default: RuleAction) -> RuleAction | None:
         """None means the rule is disabled."""

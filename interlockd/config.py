@@ -13,7 +13,7 @@ MAX_REQUEST_BYTES = 1_048_576
 
 DEFAULT_PROTECTED = [".git/hooks/**", ".kiro/**", ".claude/**", ".codex/**", ".github/workflows/**", ".interlock/**"]
 DEFAULT_SENSITIVE = [
-    "~/.ssh/**", "~/.aws/**", "~/.config/gh/**", "~/.interlock/token", "**/.env", "**/.env.*", "**/*.pem",
+    "~/.ssh/**", "~/.aws/**", "~/.config/gh/**", "~/.interlock/token", "~/.interlock/identity", "**/.env", "**/.env.*", "**/*.pem",
     "**/id_rsa*", "**/id_ed25519*", "**/*.key",
 ]
 DEFAULT_FAIL_MODE = {

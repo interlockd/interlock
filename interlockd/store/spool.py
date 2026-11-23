@@ -110,7 +110,7 @@ class Spool:
         """Walk every segment in order. Returns {ok, records, legacy, head, break: {segment, line, reason} | None}."""
         expected, n, legacy = None, 0, 0
         for seg in self.segments():
-            for i, raw in enumerate(seg.read_text(encoding="utf-8").splitlines(), 1):
+            for i, raw in enumerate(split_lines(seg.read_text(encoding="utf-8")), 1):
                 if not raw.strip():
                     continue
                 try:
@@ -123,7 +123,10 @@ class Spool:
                     legacy += 1
                     continue
                 prev = rec.get("prev_hash")
-                if expected is None and prev != GENESIS and legacy == 0:
+                # A legacy prefix does not excuse the first chained record: `head()` is GENESIS for a legacy-only
+                # spool, so a genuine first record always starts from it. Without this, stripping `hash` from the
+                # first chained record would turn it into "legacy" and let the next record skip the check.
+                if expected is None and prev != GENESIS:
                     return _broken(seg, i, "first chained record does not start the chain (records removed before it?)", n, legacy)
                 if expected is not None and prev != expected:
                     return _broken(seg, i, "prev_hash does not match the previous record (removed or reordered?)", n, legacy)
@@ -141,7 +144,7 @@ class Spool:
         if reverse:
             segs = list(reversed(segs))
         for seg in segs:
-            lines = seg.read_text(encoding="utf-8").splitlines()
+            lines = split_lines(seg.read_text(encoding="utf-8"))
             if reverse:
                 lines = list(reversed(lines))
             for line in lines:
@@ -183,6 +186,16 @@ GENESIS = "genesis"
 def record_hash(rec_without_hash: dict[str, Any]) -> str:
     body = json.dumps(rec_without_hash, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return hashlib.sha256(f"{rec_without_hash.get('prev_hash', GENESIS)}\n{body}".encode()).hexdigest()
+
+
+def split_lines(text: str) -> list[str]:
+    """Split a segment into records on "\\n" only. `append` writes JSON with ensure_ascii=False, so U+0085, U+2028,
+    U+2029 (and other characters `str.splitlines` treats as breaks) appear raw inside a record. Line i of the result
+    is line i of the file as counted by newline bytes."""
+    lines = text.split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    return lines
 
 
 def _last_line(path: Path) -> str | None:

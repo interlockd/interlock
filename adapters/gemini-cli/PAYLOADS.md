@@ -63,3 +63,10 @@ ROT13. That output was not flagged at the time. Two fixes followed:
   `TypeError: fetch failed sending request` and nine retries. That is the Node install, not the hooks.
 - Free-tier keys: `gemini-2.5-flash` returned "no longer available to new users"; `gemini-3.8-flash` worked (20 requests
   per day).
+## Tamper refusals
+Shared contract (classification, cause keywords, messages, `hook.log`, the `shim` request field and the `X-Interlock-Identity` header): `adapters/README.md`. Gemini CLI output, within the contract above:
+| Case | Interlock emits |
+|---|---|
+| `token_rejected`, `daemon_identity`, `daemon_lost` on BeforeTool, `fail_mode.tamper: closed` | `{"decision": "deny", "reason": "<tamper message>"}`, exit 0 |
+| `enforcement_point` on BeforeTool (daemon block) | the refusal above with the daemon's notice as `reason` |
+| `fail_mode.tamper: open`, or any AfterTool | no output, exit 0 |

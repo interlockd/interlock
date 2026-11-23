@@ -7,6 +7,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import threading
 import time
 from datetime import UTC, datetime
 from typing import Any
@@ -45,6 +46,39 @@ def _now_iso() -> str:
     return datetime.now(UTC).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
+NOTICE_WINDOW_S = 60.0
+# Gateway events (`interlock mcp-proxy`, the HTTP MCP gateway) do not say which harness launched them: while any
+# harness is compromised, gateway calls are treated as that harness's (Requirement 6.8), the conservative reading.
+GATEWAY_ADAPTERS = frozenset({"mcp-proxy", "mcp-gateway"})
+
+
+def _is_gateway(event: InterlockEvent, integrity: Any) -> bool:
+    return integrity is None and (event.adapter.name in GATEWAY_ADAPTERS
+                                  or event.identity.agent_type in GATEWAY_ADAPTERS)
+
+
+class NoticeWindow:
+    """At most one tamper notice per `(harness, reason)` per window (Requirement 6.10). The block verdict and the
+    `control.hook_tamper` finding are not windowed; only the notice text is."""
+
+    def __init__(self, window_s: float = NOTICE_WINDOW_S, clock=time.monotonic):
+        self.window_s, self._clock = window_s, clock
+        self._shown: dict[tuple[str, str], float] = {}
+        self._lock = threading.Lock()
+
+    def take(self, harness: str, reason: str) -> bool:
+        """True (and the window starts now) when the notice may be included in this reply."""
+        now = self._clock()
+        with self._lock:
+            last = self._shown.get((harness, reason))
+            if last is not None and now - last < self.window_s:
+                return False
+            if len(self._shown) > 1024:
+                self._shown.clear()
+            self._shown[(harness, reason)] = now
+            return True
+
+
 class Daemon:
     def __init__(self, settings: Settings, *, spool: Spool, repo: Repository | None = None, policy: Policy | None = None):
         self.settings = settings
@@ -80,6 +114,92 @@ class Daemon:
 
             self.local_probe = LocalInjectionProbe(threshold=lp.threshold, classifier_model=lp.classifier_model,
                                                    classifier_threshold=lp.classifier_threshold)
+        # Compromised-enforcement-point response (Requirement 6). `protection`, `verifier` and `operator_actions` are
+        # attached by `cli.attach_integrity`; a bare daemon has none and decides exactly as before.
+        self.notice_window = NoticeWindow()
+        self._no_baseline_seen: set[str] = set()
+
+    # ---- enforcement-point integrity (Requirements 5.3, 5.4, 5.12, 6) --------------------------------------------
+    def _emit_control(self, rec: dict[str, Any]) -> None:
+        self.spool.append(rec)
+        if self.otel is not None:
+            self.otel.submit(rec)
+
+    def _note_integrity(self, v: Any) -> None:
+        """Act on the hot path's `integrity.Verification` before the verdict: `no_baseline` is recorded once per
+        harness per run (5.12) and changes nothing else; a harness problem becomes an unresolved Protection_State
+        reason, with exactly one Tamper_Event per change (5.3, 5.4). `add_reason` is atomic and returns False when
+        the reason is already open (raised earlier on the hot path, by HookWatch, or restored at start), so later
+        requests and the next HookWatch pass record nothing further. A change an Operator_Action explains (11.2:
+        `interlock init` or `uninstall` within the grace period) raises nothing; HookWatch moves the baseline."""
+        from . import records
+        from .protection import HARNESS_REASONS
+
+        if v is None or not getattr(v, "problem", ""):
+            return
+        harness = str(getattr(v, "harness", "") or "")
+        if v.problem == "no_baseline":
+            if harness and harness not in self._no_baseline_seen:
+                self._no_baseline_seen.add(harness)
+                self._emit_control(records.no_baseline(harness, **records.meta(self)))
+            return
+        ps = getattr(self, "protection", None)
+        if ps is None or not harness or v.problem not in HARNESS_REASONS:
+            return
+        ops = getattr(self, "operator_actions", None)
+        if ops is not None and ops.explains("enforcement_point") is not None:
+            return
+        ev = records.tamper_event(v.problem, harness, v.path, v.expected_sha256, v.observed_sha256,
+                                  detector="verifier", **records.meta(self))
+        if ps.add_reason(harness, v.problem, ev["event_id"], ev["received_at"]):
+            self._emit_control(ev)
+
+    def _compromised_reasons(self, event: InterlockEvent, integrity: Any) -> list:
+        """The unresolved harness reasons that apply to this event: the requesting harness's (the hook route's
+        harness, else the event's adapter), or every harness's for a gateway event. Home-level reasons (token,
+        policy, state) are not enforcement-point reasons; the policy pin has its own lockdown."""
+        ps = getattr(self, "protection", None)
+        if ps is None:
+            return []
+        from .protection import HARNESS_REASONS, HOME
+
+        open_ = [r for r in ps.reasons() if r.subject != HOME and r.reason in HARNESS_REASONS]
+        if not open_:
+            return []
+        if _is_gateway(event, integrity):
+            return open_
+        subject = str(getattr(integrity, "harness", "") or "") if integrity is not None else event.adapter.name
+        return [r for r in open_ if r.subject == subject]
+
+    def compromised_override(self, verdict: Verdict, kind: str, reasons: list, *, gateway: bool = False,
+                             keep_notice: bool = False) -> None:
+        """Apply Requirement 6 to a composed verdict, in place. Pre-action: enforce → `block` with the tamper notice
+        (6.1); shadow → the policy's disposition with the notice added (6.2; the renderer places it only where the
+        harness's contract carries a message). Gateway results get the notice appended (6.9). Every case adds the
+        `control.hook_tamper` finding; the notice text appears at most once per (harness, reason) per 60 s, the
+        block and the finding on every request (6.10). `keep_notice` keeps a notice an earlier override set."""
+        from .models import Finding
+        from .render import TAMPER_FINDING, tamper_notice
+
+        if not reasons:
+            return
+        latest = max(reasons, key=lambda r: (r.detected_at, r.reason))
+        harness, reason = latest.subject, latest.reason
+        verdict.findings = [*verdict.findings, Finding(category=TAMPER_FINDING, severity="high",
+                                                       rule=f"control.{reason}", detector="interlock.verifier",
+                                                       path="hook", subject=harness)]
+        if kind == "pre_action":
+            show = self.notice_window.take(harness, reason)
+            if verdict.mode == "enforce":
+                verdict.disposition = "block"
+                verdict.reason = f"control: enforcement point compromised ({harness}: {reason})"
+                if not keep_notice:
+                    verdict.notice = tamper_notice(harness, reason) if show else None
+            elif show and not keep_notice:
+                verdict.notice = tamper_notice(harness, reason, outcome="observed")
+        elif gateway and kind == "post_action" and self.notice_window.take(harness, reason):
+            text = tamper_notice(harness, reason, outcome="result")
+            verdict.notice = f"{verdict.notice}\n\n{text}" if verdict.notice else text
 
     # ---- judge stage ----------------------------------------------------------------------------------
     def _judge_pre(self, event, det, session, composed):
@@ -327,11 +447,30 @@ class Daemon:
             rec["evidence"] = event.result.evidence
         return rec
 
+    def _observe_policy_write(self, guard, event: InterlockEvent, verdict: Verdict, paths: list[str]) -> None:
+        """A file-write tool aimed at `<Home>/policy.yaml`: tell the policy guard, which pins the result when the
+        Operator approved an `ask` for it in enforce mode (Requirement 7.8). Never affects the verdict."""
+        from .tiers import IN_WORKSPACE_WRITE_TOOLS
+
+        if event.tool_call.name not in IN_WORKSPACE_WRITE_TOOLS:
+            return
+        try:
+            if guard.targets_policy(paths):
+                guard.observe_write(kind=event.kind, session_id=event.session_hint or "unknown",
+                                    call_id=event.tool_call.id, tool=event.tool_call.name,
+                                    event_id=verdict.event_id, disposition=verdict.disposition, mode=verdict.mode)
+        except Exception:  # pinning is best effort here; HookWatch reports an unpinned change
+            log.exception("in-session policy accept failed")
+
     # ---- the pipeline ----------------------------------------------------------------------------------
-    def decide(self, event: InterlockEvent) -> Verdict:
+    def decide(self, event: InterlockEvent, *, integrity: Any = None) -> Verdict:
+        """`integrity` is the hook route's `integrity.Verification` for the requesting harness (None when the route
+        has no harness or the daemon runs without a Verifier). A problem it reports is recorded before the verdict
+        is composed; a compromised harness then gets the Requirement 6 override (`compromised_override`)."""
         t0 = time.perf_counter()
         received_at = _now_iso()
         event_id = ulid()
+        self._note_integrity(integrity)
 
         turn_no = self._fill_user_messages(event)
         t_ctx = time.perf_counter()
@@ -429,6 +568,28 @@ class Daemon:
             unjudged=unjudged,
             timing_ms={},
         )
+        guard = getattr(self, "policy_guard", None)
+        if guard is not None and guard.lockdown and event.kind == "pre_action":
+            # the policy was modified and no pinned copy can be enforced: refuse every call, in any mode (7.12)
+            from .models import Finding
+            from .policy.pin import DENY_ALL_NOTICE
+
+            policy_file = str(guard.home / "policy.yaml")
+            verdict.disposition, verdict.mode = "block", "enforce"
+            verdict.reason = "control: policy_modified (no pinned copy to enforce)"
+            verdict.notice = DENY_ALL_NOTICE.format(path=policy_file)
+            verdict.findings = [*verdict.findings, Finding(category="control.hook_tamper", severity="critical",
+                                                           rule="control.policy_modified",
+                                                           detector="interlock.policy_pin", path="policy",
+                                                           subject="policy_modified")]
+            disposition = "block"
+        compromised = self._compromised_reasons(event, integrity)
+        if compromised:
+            # after the policy lockdown (which keeps its own notice), before the kill switch
+            locked = guard is not None and guard.lockdown and event.kind == "pre_action"
+            self.compromised_override(verdict, event.kind, compromised, keep_notice=locked,
+                                      gateway=_is_gateway(event, integrity))
+            disposition = verdict.disposition
         paused = self.pause_state.applies(event.identity.agent_type or event.adapter.name) if event.kind == "pre_action" else None
         if paused is not None:                            # the kill switch: enforced in any mode
             from .control import R_PAUSED
@@ -463,6 +624,11 @@ class Daemon:
         self.spool.append(rec)
         if self.otel is not None:
             self.otel.submit(rec)
+        ops = getattr(self, "operator_actions", None)
+        if ops is not None and "interlock_control" in rec["normalized"]:
+            ops.note_decision(rec)        # the operator-action route correlates the CLI's record with it (11.1)
+        if guard is not None and tier.paths and event.kind in ("pre_action", "post_action"):
+            self._observe_policy_write(guard, event, verdict, tier.paths)
         if self.repo is not None and not hasattr(self.repo, "put_events"):
             # a local repository (memory) is written inline; remote repositories are fed by the drainer
             self.repo.put_event(rec)

@@ -76,8 +76,31 @@ def test_rendering(server):
     assert _api(server, "windsurf", WIND_MCP, "text").startswith("block enforce")      # MCP shell via Windsurf
 
 
+def test_compromised_enforcement_point_rendering(server):
+    """Enforce: each refusal channel carries the tamper notice. Shadow: Copilot preToolUse does not pass
+    additionalContext to the agent, Antigravity needs a decision and the Windsurf shim exits 0 silently, so the
+    notice is omitted (the text reply still reports shadow, which the shim ignores)."""
+    from conftest import compromise
+
+    copilot = {**COPILOT_PRE, "toolArgs": json.dumps({"command": "ls"})}
+    agy = {**AGY_PRE, "toolCall": {"name": "run_command", "args": {"CommandLine": "ls", "Cwd": "/ws"}}}
+    wind = {**WIND_PRE, "tool_info": {"command_line": "ls", "cwd": "/ws"}}
+    compromise(server.daemon, "enforce", "shim_relocated")
+    c = json.loads(_api(server, "copilot-cli", copilot, "copilot-cli"))
+    assert c["permissionDecision"] == "deny" and "enforcement_point" in c["permissionDecisionReason"]
+    a = json.loads(_api(server, "antigravity", agy, "antigravity"))
+    assert a["decision"] == "deny" and "shim_relocated" in a["reason"]
+    w = _api(server, "windsurf", wind, "text")
+    assert w.startswith("block enforce") and "windsurf" in w and "enforcement_point" in w
+    compromise(server.daemon, "shadow", "shim_relocated")
+    assert _api(server, "copilot-cli", copilot, "copilot-cli") == ""
+    assert _api(server, "antigravity", agy, "antigravity") == ""
+    assert _api(server, "windsurf", wind, "text").startswith("allow shadow")
+
+
 def _shim(tmp_path, harness, server, payload, *args, **env):
     home = tmp_path / "ih"; home.mkdir(exist_ok=True); (home / "token").write_text("tok\n", encoding="utf-8")
+    (home / "identity").write_text(server.identity + "\n", encoding="utf-8")         # the shims verify replies
     sh = tmp_path / f"{harness}.sh"; sh.write_text(SHIM.read_text(encoding="utf-8").replace("__HARNESS__", harness), encoding="utf-8")
     host, port = server.address
     e = {**os.environ, "INTERLOCK_HOME": str(home), "INTERLOCK_URL": f"http://{host}:{port}", **env}
@@ -153,6 +176,8 @@ def test_windsurf_null_cwd_uses_the_hook_directory(settings, tmp_path, monkeypat
         null_cwd = {**WIND_PRE, "tool_info": {"command_line": "git push --force origin main", "cwd": None}}
         assert normalize_windsurf(null_cwd, hook_cwd=str(ws)).context.cwd == str(ws)
         home = tmp_path / "ih"; home.mkdir(); (home / "token").write_text("tok\n", encoding="utf-8")
+        (home / "identity").write_text(s.identity + "\n", encoding="utf-8")         # the shims verify replies
+        (home / "daemon.json").write_text('{{"listen": "{}:{}"}}\n'.format(*s.address), encoding="utf-8")
         env = {**os.environ, "INTERLOCK_HOME": str(home), "INTERLOCK_URL": "http://{}:{}".format(*s.address)}
         py = tmp_path / "w.py"; py.write_text(PY_SHIM.read_text(encoding="utf-8").replace("__HARNESS__", "windsurf"), encoding="utf-8")
         runners = [[sys.executable, "-I", "-S", str(py), "pre"]]                     # the Python shim (Windows) ...

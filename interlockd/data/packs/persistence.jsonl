@@ -62,3 +62,37 @@
 {"id": "pe-perl-inplace-src-neg", "cmd": "perl -pi -e 's/foo/bar/' src/main.c", "expect": "allow", "not_rules": ["persistence.agent_config_write"]}
 {"id": "pe-truncate-log-neg", "cmd": "truncate -s 0 app.log", "expect": "allow", "not_rules": ["persistence.agent_config_write"]}
 {"id": "pe-rsync-src-neg", "cmd": "rsync -a src/ build/", "expect": "allow", "not_rules": ["persistence.agent_config_write"]}
+{"id": "pe-ilc-ack", "cmd": "interlock ack -y", "expect": "ask", "rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-shadow", "cmd": "interlock shadow", "expect": "ask", "rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-abs-uninstall", "cmd": "~/.local/bin/interlock uninstall --yes", "expect": "ask", "rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-python-m-stop", "cmd": "python -m interlockd stop", "expect": "ask", "rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-cd-policy-accept", "cmd": "cd ~ && interlock policy accept", "expect": "ask", "rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-policy-revert", "cmd": "interlock policy revert", "expect": "ask", "rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-token-rotate", "cmd": "interlock token --rotate", "expect": "ask", "rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-restart", "cmd": "interlock restart", "expect": "ask", "rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-resume", "cmd": "interlock resume", "expect": "ask", "rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-home-flag-ack", "cmd": "interlock --home /tmp/il-home ack -y", "expect": "ask", "rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-python312-cli-rotate", "cmd": "python3.12 -m interlockd.cli token --rotate", "expect": "ask", "rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-bash-c-stop", "cmd": "bash -c 'interlock stop'", "expect": "ask", "rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-pipe-yes-ack", "cmd": "yes | interlock ack", "expect": "ask", "rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-env-prefix-shadow", "cmd": "INTERLOCK_HOME=/tmp/h env interlock shadow", "expect": "ask", "rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-uvx-shadow", "cmd": "uvx interlock shadow", "expect": "ask", "rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-subst-stop", "cmd": "echo $(interlock stop)", "expect": "ask", "rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-after-status", "cmd": "interlock status; interlock stop", "expect": "ask", "rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-sudo-stop", "cmd": "sudo interlock stop", "expect": "ask", "rules": ["persistence.interlock_control", "shell.sudo"]}
+{"id": "pe-ilc-status-neg", "cmd": "interlock status", "expect": "allow", "not_rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-doctor-neg", "cmd": "interlock doctor", "expect": "allow", "not_rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-log-follow-neg", "cmd": "interlock log -f", "expect": "allow", "not_rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-enforce-neg", "cmd": "interlock enforce", "expect": "allow", "not_rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-commit-msg-neg", "cmd": "git commit -m \"interlock ack\"", "expect": "allow", "not_rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-echo-neg", "cmd": "echo interlock stop", "expect": "allow", "not_rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-grep-neg", "cmd": "grep interlock stop README.md", "expect": "allow", "not_rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-token-path-neg", "cmd": "interlock token", "expect": "allow", "not_rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-policy-lint-neg", "cmd": "interlock policy lint", "expect": "allow", "not_rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-policy-diff-neg", "cmd": "interlock policy diff", "expect": "allow", "not_rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-stop-help-neg", "cmd": "interlock stop --help", "expect": "allow", "not_rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-capture-stop-neg", "cmd": "interlock capture stop", "expect": "allow", "not_rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-pause-neg", "cmd": "interlock pause --minutes 5", "expect": "allow", "not_rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-python-m-status-neg", "cmd": "python3 -m interlockd status", "expect": "allow", "not_rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-pytest-k-neg", "cmd": "pytest -k interlock_stop tests/", "expect": "allow", "not_rules": ["persistence.interlock_control"]}
+{"id": "pe-ilc-shim-name-neg", "cmd": "sh ~/.interlock/adapters/kiro/interlock-hook.sh stop < /dev/null", "expect": "allow", "not_rules": ["persistence.interlock_control"]}

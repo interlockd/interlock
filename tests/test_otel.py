@@ -1,5 +1,6 @@
 """OpenTelemetry export: spans per decision over OTLP/HTTP JSON; a session is one trace; no arguments exported;
-a dead collector never affects decisions."""
+a dead collector never affects decisions; control records add only the tamper kind and protection state.
+The only collector used is a local stub bound to 127.0.0.1."""
 
 from __future__ import annotations
 
@@ -9,7 +10,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 
+from interlockd import records
 from interlockd.models import AdapterInfo, Context, InterlockEvent, ToolCall
+from interlockd.otel import span_from_record
 from interlockd.pipeline import Daemon
 from interlockd.policy import Policy
 from interlockd.store.memory import MemoryRepository
@@ -84,3 +87,59 @@ def test_cli_backfill(settings, collector, monkeypatch):
                                       "tool_name": "Bash", "disposition": "allow", "session_id": "s"})
     monkeypatch.setenv("INTERLOCK_HOME", str(settings.home))
     assert main(["otel", "export", "--endpoint", url]) == 0 and len(got) == 1
+
+
+# ---- control records (hook-tamper-detection, Requirement 13.5) -------------------------------------------------
+DECISION_KEYS = {"gen_ai.operation.name", "gen_ai.tool.name", "gen_ai.tool.call.id", "gen_ai.agent.name",
+                 "gen_ai.conversation.id", "interlock.event_id", "interlock.kind", "interlock.disposition",
+                 "interlock.mode", "interlock.tier", "interlock.action_class", "interlock.rules",
+                 "interlock.workspace", "interlock.policy_sha256", "interlock.unjudged"}
+CONTROL_KEYS = {"interlock.tamper_kind", "interlock.protection_state"}
+MARK = "PLANTEDMARK7f3a"
+
+
+def _planted(kind: str) -> dict:
+    """A tamper-kind control record with the marker in its path, digests, reason and every optional field."""
+    rec = records.tamper_event(kind, "claude-code", f"/home/{MARK}/adapters/interlock-hook.sh",
+                               reason=f"{MARK}_reason", observed_mode=0o644, restored_mode=0o600,
+                               restore_error=f"{MARK}_err", mode="enforce", policy_sha256="a" * 64)
+    a = rec["arguments"]
+    a["expected_sha256"], a["observed_sha256"] = f"{MARK}-expected", f"{MARK}-observed"   # planted, not hex
+    a["restore_error"], a["file"], a["cause"] = f"{MARK} err", f"/{MARK}/file", f"{MARK} cause"
+    rec.update(reason=f"{MARK} reason text", cwd=f"/work/{MARK}", agent_workspace=f"/work/{MARK}",
+               tool_call_id=f"{MARK}-call", state={"x": MARK}, answers=[MARK], guardrails=[MARK],
+               result_summary=MARK, unjudged=[MARK])
+    return rec
+
+
+@pytest.mark.parametrize("kind", sorted(records.TAMPER_KINDS))
+def test_control_span_is_content_free(kind):
+    span = span_from_record(_planted(kind))
+    a = _attrs(span)
+    assert MARK not in json.dumps(span)
+    assert a["interlock.tamper_kind"] == kind and a["interlock.kind"] == "control"
+    assert set(a) <= DECISION_KEYS | CONTROL_KEYS
+    assert {"stringValue": f"control.{kind}"} in a["interlock.rules"]["values"]
+
+
+def test_control_span_protection_state():
+    ps = span_from_record(records.protection_state("claude-code", "protected", "compromised", ["shim_modified"]))
+    op = span_from_record(records.operator_action("shadow", protection_state="observing"))
+    assert _attrs(ps)["interlock.protection_state"] == "compromised" and "interlock.tamper_kind" not in _attrs(ps)
+    assert _attrs(op)["interlock.protection_state"] == "observing"
+
+
+def test_control_span_drops_values_outside_the_fixed_sets():
+    rec = records.protection_state("home", "protected", "compromised", [])
+    rec["arguments"]["new"] = MARK
+    rec["arguments"]["tamper_kind"] = MARK
+    rec["findings"] = [{"rule": f"control.{MARK}"}, {"rule": MARK}]
+    span = span_from_record(rec)
+    assert MARK not in json.dumps(span)
+    assert not CONTROL_KEYS & set(_attrs(span)) and "interlock.rules" not in _attrs(span)
+
+
+def test_decision_span_has_no_control_attributes():
+    rec = {"event_id": "e1", "received_at": "2026-10-17T00:00:00Z", "kind": "pre_action", "tool_name": "Bash",
+           "disposition": "allow", "session_id": "s", "arguments": {"tamper_kind": "shim_modified", "new": "compromised"}}
+    assert not CONTROL_KEYS & set(_attrs(span_from_record(rec)))

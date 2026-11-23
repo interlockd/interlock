@@ -30,3 +30,11 @@
 | Refuse a call | `{"permission": "deny", "agent_message": "...", "user_message": "..."}` | ✅ the call did not run; the agent reported `Rejected: Interlock blocked this action: ...` |
 | No opinion | no output, **exit 1** | ✅ the call ran normally (exit 1 is fail-open) |
 | Withhold | `updated_mcp_tool_output` (MCP tools only) | not measured |
+## Tamper refusals
+Shared contract (classification, cause keywords, messages, `hook.log`, the `shim` request field and the `X-Interlock-Identity` header): `adapters/README.md`. Cursor output, within the contract above:
+| Case | Interlock emits |
+|---|---|
+| `token_rejected`, `daemon_identity`, `daemon_lost` on `preToolUse`, `fail_mode.tamper: closed` | `{"permission": "deny", "agent_message": "<tamper message>", "user_message": "<short summary>"}`, exit 0. The cause keyword is in `agent_message`; `user_message` is a one-line summary without it |
+| `enforcement_point` on `preToolUse` (daemon block) | the refusal above with the daemon's notice as `agent_message` |
+| `fail_mode.tamper: open` on `preToolUse` | no output, **exit 1** (Cursor's no opinion) |
+| Any `postToolUse` | no output, exit 0 |

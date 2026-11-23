@@ -18,6 +18,7 @@ class Strict(BaseModel):
 class AdapterInfo(Strict):
     name: str
     version: str = "0"
+    shim: str | None = None     # the absolute path of the shim/plugin file that ran (hook-tamper-detection Req 5.10)
 
 
 class Identity(Strict):

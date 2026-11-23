@@ -14,10 +14,12 @@ with an older API skips it with a message instead of failing at runtime.
 from __future__ import annotations
 
 import json
+import logging
 import os
-from collections.abc import Iterator, Mapping
+import threading
+from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -26,9 +28,13 @@ from .policy import Policy
 
 API_VERSION = 1
 
-__all__ = ["API_VERSION", "INTERLOCKD_VERSION", "DaemonStatus", "Decision", "LintIssue", "check_managed_policy",
-           "compose_policies", "daemon_status", "decisions", "effective_policy", "hook_status", "lint_policy",
-           "load_policy", "managed_policy_path", "settings_from_args", "spool_dir", "tighten_policy", "validate_policy"]
+__all__ = ["API_VERSION", "INTERLOCKD_VERSION", "DaemonStatus", "Decision", "HarnessProtection", "LintIssue",
+           "ProtectionStatus", "StartupReport", "check_managed_policy", "compose_policies", "daemon_status",
+           "decisions", "effective_policy", "hook_status", "lint_policy", "load_policy", "managed_policy_path",
+           "pin_managed_policy", "protection_status", "record_operator_action", "settings_from_args", "spool_dir",
+           "startup_report", "subscribe_protection", "tighten_policy", "validate_policy"]
+
+log = logging.getLogger("interlockd.plugin_api")
 
 
 # ---- settings and policy -------------------------------------------------------------------------------------
@@ -171,7 +177,9 @@ def hook_status(home: str | Path) -> list[dict[str, str]]:
 class Decision:
     """The parts of one audit record a plugin may read: metadata only. Tool arguments, results, file paths, the working
     directory, transcripts, reason and notice texts (they can quote a command) and finding subjects are never exposed.
-    Fields after `selftest` were added in 0.1.8 (additive); records written by older versions leave them empty."""
+    Fields after `selftest` were added in 0.1.8 (additive); records written by older versions leave them empty.
+    `tamper_kind` and `protection_state` (added in 0.2.0) are set for `control` records only, from fixed code sets;
+    the file path, digests and reason of a control record are never exposed."""
     received_at: datetime
     kind: str                            # "pre_action", "post_action" or "control"
     disposition: str                     # "allow", "ask", "block", "warn", "withhold", ...
@@ -187,6 +195,8 @@ class Decision:
     tool_name: str = ""                  # e.g. "Bash", "Write", "mcp__github__create_pull_request" (names MCP servers)
     finding_severities: tuple[str, ...] = ()   # severity per entry of `findings`, same order
     policy_sha256: str = ""              # the effective policy's hash
+    tamper_kind: str = ""                # control records: "shim_modified", "token_rejected", ... ("" otherwise)
+    protection_state: str = ""           # control records: "protected", "observing", "compromised", ... ("" otherwise)
 
     def keyed_session(self, key: bytes) -> str:
         """A stable pseudonym for `session_id` under `key` (HMAC-SHA256): groups one session's decisions without
@@ -211,6 +221,8 @@ def decisions(spool: str | Path, since: datetime, until: datetime) -> Iterator[D
     root = Path(spool)
     if not root.exists():
         return
+    from .records import STATES, TAMPER_KINDS
+
     first_day = since.astimezone(UTC).date().isoformat()
     for seg in sorted(root.glob("*.jsonl")):
         if seg.stem < first_day:                     # one file per UTC day
@@ -234,6 +246,7 @@ def decisions(spool: str | Path, since: datetime, until: datetime) -> Iterator[D
             sid = str(rec.get("session_id") or "")
             norm = rec.get("normalized") if isinstance(rec.get("normalized"), dict) else {}
             tier = rec.get("tier")
+            tamper_kind, pstate = _control_fields(rec, TAMPER_KINDS, STATES)
             yield Decision(ts, str(rec.get("kind") or ""), str(rec.get("disposition") or ""), found,
                            bool(rec.get("answers") or rec.get("unjudged")), sid, sid.startswith("interlock-selftest"),
                            event_id=str(rec.get("event_id") or ""), agent=str(rec.get("adapter") or ""),
@@ -241,4 +254,291 @@ def decisions(spool: str | Path, since: datetime, until: datetime) -> Iterator[D
                            tier=tier if isinstance(tier, int) and not isinstance(tier, bool) else None,
                            mode=str(rec.get("mode") or ""), tool_name=str(rec.get("tool_name") or "")[:200],
                            finding_severities=tuple(str(f.get("severity") or "") for f in fs),
-                           policy_sha256=str(rec.get("policy_sha256") or ""))
+                           policy_sha256=str(rec.get("policy_sha256") or ""),
+                           tamper_kind=tamper_kind, protection_state=pstate)
+
+
+def _control_fields(rec: dict[str, Any], kinds: frozenset[str], states: tuple[str, ...]) -> tuple[str, str]:
+    """(tamper_kind, protection_state) of a control record, each from its fixed set ("" for anything else)."""
+    args = rec.get("arguments")
+    if rec.get("kind") != "control" or not isinstance(args, dict):
+        return "", ""
+    tk = args.get("tamper_kind")
+    record = args.get("record")
+    ps = args.get("new") if record == "protection_state" else (
+        args.get("protection_state") if record == "operator_action" else "")
+    return (tk if isinstance(tk, str) and tk in kinds else "",
+            ps if isinstance(ps, str) and ps in states else "")
+
+
+# ---- protection state (tamper detection) -----------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class HarnessProtection:
+    name: str                            # harness name, e.g. "claude-code"
+    state: str                           # "protected", "observing" or "compromised"
+    reasons: tuple[str, ...]             # unresolved reason codes, e.g. ("shim_modified",)
+    detected_at: tuple[str, ...]         # ISO detection time per entry of `reasons`, same order
+
+
+@dataclass(frozen=True)
+class ProtectionStatus:
+    """What a plugin may report about the daemon's Protection_State: fixed codes, times, counts and the policy
+    digests only (no paths, no file contents)."""
+    aggregate: str                       # one of "protected", "observing", "stopped", "compromised", "unknown"
+    harnesses: tuple[HarnessProtection, ...]
+    home_reasons: tuple[str, ...]        # unresolved Home-level reason codes ("token_modified", "policy_modified", ...)
+    last_tamper_at: str | None           # ISO time of the most recent Tamper_Event; None when there was none
+    tamper_count_since: int              # Tamper_Events recorded since `since` (selftest token rejections excluded)
+    pinned_policy_sha256: str | None
+    on_disk_policy_sha256: str | None    # None when the file is absent
+    operator_action: str | None          # the Operator_Action behind an `observing` state, when known
+
+
+MAX_COUNT_DAYS = 7          # tamper counts look back at most this far (Requirement 10.10's carry-forward bound)
+# operator actions that set the mode the daemon observes in (shadow mode comes from the policy they write or accept)
+_MODE_ACTIONS = ("shadow", "init", "policy_accept", "policy_revert", "policy_set", "policy_edit", "ack")
+
+
+def _home_of(daemon: Any) -> Path | None:
+    for obj in (getattr(daemon, "protection", None), getattr(daemon, "settings", None)):
+        home = getattr(obj, "home", None)
+        if home is not None:
+            return Path(home)
+    return None
+
+
+def _daemon_started(home: Path | None) -> datetime | None:
+    from .lifecycle import parse_iso
+
+    if home is None:
+        return None
+    try:
+        doc = json.loads((home / "daemon.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return parse_iso(doc.get("started_at")) if isinstance(doc, dict) else None
+
+
+def _tamper_count(spool: Any, since: datetime, until: datetime) -> int:
+    """Tamper_Events in [since, until), without the `token_rejected` records an `interlock selftest` caused (14.7),
+    as the Doctor counts them."""
+    from .lifecycle import parse_iso
+    from .operator import GRACE_S
+    from .records import TAMPER_KINDS
+
+    if spool is None or not hasattr(spool, "iter_records"):
+        return 0
+    grace = timedelta(seconds=GRACE_S)
+    found: list[tuple[datetime, str]] = []
+    selftests: list[datetime] = []
+    try:
+        for rec in spool.iter_records():                 # newest first
+            if not isinstance(rec, dict):
+                continue
+            t = parse_iso(rec.get("received_at"))
+            if t is None:
+                continue
+            if t < since - grace - timedelta(seconds=60):   # a selftest just before `since` still explains its records
+                break
+            if rec.get("kind") != "control" or not isinstance(rec.get("arguments"), dict):
+                continue
+            a = rec["arguments"]
+            if a.get("record") == "operator_action" and a.get("action") == "selftest" and not a.get("failed"):
+                selftests.append(t)
+            elif a.get("tamper_kind") in TAMPER_KINDS and since <= t < until:
+                found.append((t, a["tamper_kind"]))
+    except (OSError, ValueError):
+        pass
+    return sum(1 for t, k in found
+               if not (k == "token_rejected" and any(s <= t < s + grace for s in selftests)))
+
+
+def _status(daemon: Any, since: datetime | None) -> ProtectionStatus:
+    from .protection import HARNESS_REASONS, HOME_REASONS
+    from .records import STATES
+
+    protection = getattr(daemon, "protection", None) if daemon is not None else None
+    if protection is None:
+        return ProtectionStatus("unknown", (), (), None, 0, None, None, None)
+    snap = protection.snapshot()
+    harnesses = []
+    for name, h in sorted((snap.get("harnesses") or {}).items()):
+        rs = [r for r in h.get("reasons") or [] if r.get("reason") in HARNESS_REASONS]
+        state = h.get("state") if h.get("state") in STATES else "unknown"
+        harnesses.append(HarnessProtection(str(name), state, tuple(r["reason"] for r in rs),
+                                           tuple(str(r.get("detected_at") or "") for r in rs)))
+    home_reasons = tuple(r["reason"] for r in snap.get("home_reasons") or [] if r.get("reason") in HOME_REASONS)
+    aggregate = snap.get("aggregate") if snap.get("aggregate") in STATES else "unknown"
+
+    now = datetime.now(UTC)
+    floor = now - timedelta(days=MAX_COUNT_DAYS)
+    start = since if since is not None else (_daemon_started(_home_of(daemon)) or floor)
+    start = max(start if start.tzinfo else start.replace(tzinfo=UTC), floor)
+    count = _tamper_count(getattr(daemon, "spool", None), start, now + timedelta(seconds=1))
+
+    pinned = on_disk = None
+    guard = getattr(daemon, "policy_guard", None)
+    if guard is not None:
+        st = (guard.status() or {}).get("policy") or {}
+        pinned, on_disk = st.get("pinned_sha256") or None, st.get("on_disk_sha256") or None
+
+    action = None
+    if aggregate == "observing":
+        if snap.get("observing"):
+            action = "shadow"           # the observing flag is only ever set by the Operator's `interlock shadow`
+        else:
+            recent = getattr(daemon, "operator_actions", None)
+            for e in reversed(recent.recent() if recent is not None else []):
+                if e.get("action") in _MODE_ACTIONS:
+                    action = e["action"]
+                    break
+    last = snap.get("last_tamper_at")
+    return ProtectionStatus(aggregate, tuple(harnesses), home_reasons, last if isinstance(last, str) else None,
+                            count, pinned, on_disk, action)
+
+
+def protection_status(daemon: Any | None, *, since: datetime | None = None) -> ProtectionStatus:
+    """The Protection_State of the daemon handed to `on_serve` (or None: `unknown`). `tamper_count_since` counts the
+    Tamper_Events recorded since `since` (default: the daemon's start), looking back at most MAX_COUNT_DAYS."""
+    return _status(daemon, since)
+
+
+CALLS_UNJUDGED_KEYS = ("unjudged", "tamper_token_rejected", "tamper_daemon_identity", "tamper_daemon_lost")
+
+
+@dataclass(frozen=True)
+class StartupReport:
+    """What the start-up audit of the daemon handed to `on_serve` recorded (Requirement 3.5, 3.12): a flag and
+    counts only. `calls_unjudged` has the keys of CALLS_UNJUDGED_KEYS when a `control.calls_unjudged` summary was
+    recorded at this start, and is empty otherwise."""
+    unexpected_exit: bool                # the previous daemon ended without `interlock stop` or a clean exit
+    calls_unjudged: dict[str, int]       # hook calls the shims logged while no daemon judged them, per classification
+    started_at: str | None               # this daemon's start time (ISO); None when unknown
+
+
+def startup_report(daemon: Any | None) -> StartupReport:
+    """The `control.daemon_unexpected_exit` and `control.calls_unjudged` records written at this daemon's start,
+    read back from its spool. No daemon, or no start time: nothing to report."""
+    from .lifecycle import parse_iso
+
+    home = _home_of(daemon) if daemon is not None else None
+    started = _daemon_started(home)
+    spool = getattr(daemon, "spool", None) if daemon is not None else None
+    if started is None or spool is None or not hasattr(spool, "iter_records"):
+        return StartupReport(False, {}, None)
+    floor = started - timedelta(seconds=5)            # the audit runs after daemon.json is written
+    unexpected = False
+    counts: dict[str, int] = {}
+    try:
+        for rec in spool.iter_records():              # newest first
+            if not isinstance(rec, dict):
+                continue
+            t = parse_iso(rec.get("received_at"))
+            if t is None:
+                continue
+            if t < floor:
+                break
+            args = rec.get("arguments")
+            if rec.get("kind") != "control" or not isinstance(args, dict):
+                continue
+            if args.get("record") == "daemon_unexpected_exit":
+                unexpected = True
+            elif args.get("record") == "calls_unjudged" and not counts:
+                for k in CALLS_UNJUDGED_KEYS:
+                    v = args.get(k)
+                    counts[k] = v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else 0
+    except (OSError, ValueError):
+        pass
+    return StartupReport(unexpected, counts, started.astimezone(UTC).isoformat(timespec="seconds"))
+
+
+def subscribe_protection(daemon: Any | None,
+                         callback: Callable[[ProtectionStatus], None]) -> Callable[[], None]:
+    """Call `callback(protection_status(daemon))` after Protection_State changes. Returns a function that unsubscribes.
+
+    The callback runs on a worker thread of its own, never on the thread that changed the state, so a slow callback
+    cannot delay a verdict; changes that arrive while it runs are coalesced into one more call with the latest
+    status. A callback that raises is logged and stays subscribed. Without a protection state (no daemon, or a daemon
+    without tamper detection) nothing is ever called."""
+    protection = getattr(daemon, "protection", None) if daemon is not None else None
+    if protection is None:
+        return lambda: None
+    wake, stop = threading.Event(), threading.Event()
+
+    def run() -> None:
+        while True:
+            wake.wait()
+            if stop.is_set():
+                return
+            wake.clear()
+            try:
+                callback(protection_status(daemon))
+            except Exception:  # a plugin's callback must not end the subscription
+                log.exception("protection subscriber failed")
+
+    threading.Thread(target=run, name="interlock-protection-subscriber", daemon=True).start()
+    unsub = protection.subscribe(lambda _snapshot: wake.set())
+
+    def unsubscribe() -> None:
+        unsub()
+        stop.set()
+        wake.set()
+    return unsubscribe
+
+
+def _same_home(daemon: Any, home: Path) -> bool:
+    dh = _home_of(daemon)
+    try:
+        return dh is not None and dh.expanduser().resolve() == home.resolve()
+    except OSError:
+        return False
+
+
+def _record_action(home: Path, action: str, harness: str, daemon: Any | None) -> str:
+    """Record an Operator_Action made through a plugin (`via: console`); returns its event id. In the daemon's own
+    process (`daemon` for this Home) it is handled in-process; otherwise through the daemon's control route, or
+    appended to the spool directly when the daemon does not acknowledge within 2 s."""
+    from . import operator
+    from .config import Settings
+
+    if daemon is not None and _same_home(daemon, home) and getattr(daemon, "spool", None) is not None:
+        reply = operator.handle_operator_action(daemon, {"action": action, "harness": harness, "via": "console",
+                                                         "grace_s": int(operator.GRACE_S)})
+        return str(reply["event_id"])
+    return str(operator.record(Settings(home=home), action, harness=harness, via="console")["event_id"])
+
+
+def record_operator_action(home: str | Path, action: str, *, harness: str = "", daemon: Any | None = None) -> None:
+    """Record an Operator_Action a plugin is about to perform (e.g. "console_sync" before rewriting the managed
+    policy), before it changes anything, so the daemon treats the change as explained (Requirement 11.1, 11.2).
+    `action` is one of the daemon's fixed action names (ValueError otherwise). Pass the daemon handed to `on_serve`
+    when calling from inside it. Raises OSError when the record cannot be written at all."""
+    _record_action(Path(home).expanduser(), action, harness, daemon)
+
+
+def pin_managed_policy(home: str | Path, *, daemon: Any | None = None) -> str:
+    """Pin `<home>/managed-policy.yaml` as just written by the Console sync (Requirement 7.10): records the
+    `console_sync` Operator_Action first, then stores the file's digest in the Integrity_Baseline and a byte-identical
+    pinned copy. Returns the pinned digest ("" when the file is absent, which removes the pin). Pass the daemon handed
+    to `on_serve` when calling from inside it. Raises OSError when the pin was not updated; the previous pin then
+    stays in effect (7.11)."""
+    from . import integrity
+    from .onboard import Manifest
+    from .policy import pin as policy_pin
+
+    home = Path(home).expanduser()
+    _record_action(home, "console_sync", "", daemon)
+    guard = getattr(daemon, "policy_guard", None) if daemon is not None and _same_home(daemon, home) else None
+    if guard is not None:
+        guard.check()                   # explained by console_sync: pins, records and clears the reason
+        digest = policy_pin.file_sha256(policy_pin.source_path(home, "managed")) or ""
+        if guard.pinned_sha256("managed") != digest:
+            raise OSError(f"the pin of {policy_pin.source_path(home, 'managed')} was not updated")
+        return digest
+    base = integrity.Baseline.load(home)
+    if base is None:
+        if (home / integrity.BASELINE).exists():
+            raise OSError(f"{home / integrity.BASELINE} cannot be read; the managed policy pin was not updated")
+        base = integrity.Baseline.from_disk(home, Manifest.load(home))
+    return policy_pin.pin(home, "managed", baseline=base)

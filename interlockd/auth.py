@@ -5,7 +5,18 @@ from __future__ import annotations
 import hmac
 import os
 import secrets
+import sys
 from pathlib import Path
+
+
+def _owner_only(path: Path) -> None:
+    """Windows: `os.open(..., 0o600)` sets no ACL, so a new token would inherit whatever its folder grants. Reset it
+    to the owner, SYSTEM and Administrators (`integrity.restore_token_mode`). Best effort: the daemon's token check
+    reports and retries an ACL this could not fix (`token_permissions`)."""
+    if sys.platform == "win32":
+        from .integrity import restore_token_mode
+
+        restore_token_mode(path)
 
 
 def load_or_create_token(path: Path) -> str:
@@ -16,6 +27,7 @@ def load_or_create_token(path: Path) -> str:
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
     with os.fdopen(fd, "w") as f:
         f.write(token + "\n")
+    _owner_only(path)
     return token
 
 
@@ -34,5 +46,6 @@ def rotate_token(path: Path) -> str:
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o600)
     with os.fdopen(fd, "w") as f:
         f.write(token + "\n")
+    _owner_only(tmp)                    # before the rename: the token is never readable more widely
     os.replace(tmp, path)
     return token

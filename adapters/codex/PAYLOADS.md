@@ -23,3 +23,11 @@ Notes:
 
 - Hooks need trust: interactively run `/hooks` once in Codex; non-interactive runs need `--dangerously-bypass-hook-trust` (use only with hooks you installed yourself).
 - Hooks fire in `codex exec` only with stdin closed (`< /dev/null`) in automation; with an open stdin it waits.
+## Tamper refusals
+Shared contract (classification, cause keywords, messages, `hook.log`, the `shim` request field and the `X-Interlock-Identity` header): `adapters/README.md`. Codex uses the Claude Code shim and format:
+| Case | Interlock emits |
+|---|---|
+| `token_rejected`, `daemon_identity`, `daemon_lost` on PreToolUse, `fail_mode.tamper: closed` | `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "<tamper message>"}}`, exit 0 |
+| `enforcement_point` on PreToolUse (daemon block) | the refusal above with the daemon's notice as `permissionDecisionReason` |
+| Same, shadow mode | no output, exit 0 (the shadow notice is not sent on Codex PreToolUse; not measured) |
+| `fail_mode.tamper: open`, or any PostToolUse | no output, exit 0 |

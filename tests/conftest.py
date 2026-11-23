@@ -113,3 +113,22 @@ def installed_shim_name() -> str:
     from interlockd.cli import hook_runtime
 
     return "interlock-hook.py" if hook_runtime() == "py" else "interlock-hook.sh"
+
+
+def compromise(daemon, mode: str = "enforce", reason: str = "shim_modified"):
+    """Wire a daemon so every hook request's harness reports `reason` (a stub hot-path Verifier) and every reply
+    carries the tamper notice (no notice window): the compromised-enforcement-point override (Requirement 6)."""
+    from interlockd.integrity import Verification
+    from interlockd.pipeline import NoticeWindow
+    from interlockd.protection import ProtectionState
+
+    class Verifier:
+        def verify(self, harness, reported=None):
+            return Verification(harness, reason, "", "", "", (reason,))
+
+    daemon.mode = mode
+    daemon.protection = ProtectionState(daemon.settings.home, daemon.spool, None, lambda: daemon.mode,
+                                        harnesses=list)
+    daemon.verifier = Verifier()
+    daemon.notice_window = NoticeWindow(window_s=0)
+    return daemon

@@ -32,3 +32,10 @@ Repo-level hooks (`.github/hooks/*.json`) did **not** fire until the folder was 
 | Refuse a call | `{"permissionDecision": "deny", "permissionDecisionReason": "..."}` | ✅ `Denied by preToolUse hook: [interlock] ...`; the agent stopped and asked |
 | Withhold a result | `{"modifiedResult": {"resultType": "success", "textResultForLlm": "<notice>"}}` | ✅ the model received only the notice (codeword test with an injected README) |
 | No opinion | no output, exit 0 | ✅ calls ran normally |
+## Tamper refusals
+Shared contract (classification, cause keywords, messages, `hook.log`, the `shim` request field and the `X-Interlock-Identity` header): `adapters/README.md`. Copilot CLI output, within the contract above:
+| Case | Interlock emits |
+|---|---|
+| `token_rejected`, `daemon_identity`, `daemon_lost` on pre, `fail_mode.tamper: closed` | `{"permissionDecision": "deny", "permissionDecisionReason": "<tamper message>"}`, exit 0 |
+| `enforcement_point` on pre (daemon block) | the refusal above with the daemon's notice as `permissionDecisionReason` |
+| `fail_mode.tamper: open`, or any post | no output, exit 0 |

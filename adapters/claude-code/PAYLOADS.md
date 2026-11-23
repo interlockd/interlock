@@ -26,3 +26,11 @@ Findings that changed the renderer:
 - Hooks fire before the permission check, including in `-p` mode with `--allowedTools`.
 
 Interlock never emits `permissionDecision: "allow"` (that would skip the CLI's own permission prompt).
+## Tamper refusals
+Shared contract (classification, cause keywords, messages, `hook.log`, the `shim` request field and the `X-Interlock-Identity` header): `adapters/README.md`. Claude Code output, within the contract above:
+| Case | Interlock emits |
+|---|---|
+| `token_rejected`, `daemon_identity`, `daemon_lost` on PreToolUse, `fail_mode.tamper: closed` | `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": "<tamper message>"}}`, exit 0 |
+| `enforcement_point` on PreToolUse (daemon block) | the refusal above with the daemon's notice as `permissionDecisionReason` |
+| Same, shadow mode | `{"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": "<notice>"}}`, no decision |
+| `fail_mode.tamper: open`, or any PostToolUse | no output, exit 0 |

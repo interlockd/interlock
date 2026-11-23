@@ -20,3 +20,11 @@ Input: `toolCall.name`, `toolCall.args` (shell is `run_command` with `CommandLin
 | After a tool | `{}` (PostToolUse cannot replace the result) |
 
 To verify live: non-shell tool names and their argument keys, exit-code behaviour.
+## Tamper refusals
+Shared contract (classification, cause keywords, messages, `hook.log`, the `shim` request field and the `X-Interlock-Identity` header): `adapters/README.md`. Antigravity output, within the contract above:
+| Case | Interlock emits |
+|---|---|
+| `token_rejected`, `daemon_identity`, `daemon_lost` on PreToolUse, `fail_mode.tamper: closed` | `{"decision": "deny", "reason": "<tamper message>"}`, exit 0 |
+| `enforcement_point` on PreToolUse (daemon block) | the refusal above with the daemon's notice as `reason` |
+| `fail_mode.tamper: open` on PreToolUse | `{"decision": "allow"}` (the no-opinion reply; a decision is required) |
+| Any PostToolUse | `{}` |
