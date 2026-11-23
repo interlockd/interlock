@@ -170,7 +170,8 @@ class Baseline:
             k = key(hk["harness"])
             if k not in b.shims and (digest := file_sha256(Path(hk["marker"]))):
                 b.shims[k] = digest            # first entry wins (Kiro may list one shim for several workspaces)
-            b.hooks.setdefault(k, hk["file"])
+            if k not in b.hooks and (p := _storable_path(str(hk["file"]))) is not None:
+                b.hooks[k] = p                 # the stored form (forward slashes on Windows), as load() returns it
         return b
 
     @classmethod

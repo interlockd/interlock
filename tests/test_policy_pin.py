@@ -264,7 +264,7 @@ def test_managed_change_serves_the_pinned_copy_until_the_console_sync(home, monk
     for _ in range(2):
         pol, prov = m.resolve(Policy())
         assert pol.mode == "enforce"                                       # still the pinned floor
-        assert prov["path"].endswith(f"{pp.PINNED_DIR}/{mp.FILE_NAME}")
+        assert Path(prov["path"]).parts[-2:] == (pp.PINNED_DIR, mp.FILE_NAME)
     mods = env.control("policy_modified")
     assert len(mods) == 1 and mods[0]["arguments"]["policy_kind"] == "managed"
     assert mods[0]["findings"][0]["rule"] == "control.managed_policy_modified"

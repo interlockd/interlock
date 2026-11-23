@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import dataclasses
 import hashlib
 import os
 import stat
@@ -37,7 +36,7 @@ def install(tmp_path):
     man = Manifest(hooks=[{"harness": "claude-code", "file": str(cfg), "marker": str(shim), "created": False}])
     man.save(home)
     (home / "token").write_text("t0ken-value\n", encoding="utf-8", newline="\n")
-    os.chmod(home / "token", 0o600)
+    assert integrity.restore_token_mode(home / "token") is None       # owner-only, as auth makes a real token
     (home / "policy.yaml").write_text("version: 1\nmode: shadow\n", encoding="utf-8", newline="\n")
     base = Baseline.from_disk(home, man)
     assert base.save(home)
@@ -58,8 +57,7 @@ def test_baseline_round_trip_flat_owner_only(install):
     assert '"shim_claude_code": "' + hashlib.sha256(shim.read_bytes()).hexdigest() + '"' in text
     assert '"hook_claude_code": "' in text and "{" not in text[1:]          # flat: no nested object
     loaded = Baseline.load(home)
-    want = holder["base"]
-    assert loaded == dataclasses.replace(want, hooks={k: integrity._storable_path(v) for k, v in want.hooks.items()})
+    assert loaded == holder["base"]
     assert loaded.token_sha256 == hashlib.sha256(b"t0ken-value\n").hexdigest()
     assert loaded.policy_file_sha256 == hashlib.sha256((home / "policy.yaml").read_bytes()).hexdigest()
     assert loaded.managed_policy_file_sha256 == ""                         # absent file
