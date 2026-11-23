@@ -445,12 +445,13 @@ class OperatorActions:
         Claims it and returns {"event_id", "disposition", "mode", "session_id", "confirmed"}, else None."""
         t = self._now() if now is None else now
         with self._lock:
-            # the ring is small (CALLS_KEPT): scan it whole rather than trust append order across threads
-            hits = [e for e in self._calls if e["action"] == action and not e["claimed"]
-                    and -1.0 <= t - e["at"] < window_s]
+            # the ring is small (CALLS_KEPT): scan it whole rather than trust append order across threads; times
+            # have millisecond resolution, so two calls in the same millisecond are told apart by recording order
+            hits = [(e["at"], i, e) for i, e in enumerate(self._calls) if e["action"] == action
+                    and not e["claimed"] and -1.0 <= t - e["at"] < window_s]
             if not hits:
                 return None
-            e = max(hits, key=lambda e: e["at"])
+            e = max(hits, key=lambda h: h[:2])[2]
             e["claimed"] = True
             return {k: e[k] for k in ("event_id", "disposition", "mode", "session_id", "confirmed")}
 
