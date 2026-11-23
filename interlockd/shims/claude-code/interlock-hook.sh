@@ -25,7 +25,7 @@ HARNESS="__HARNESS__"
 HOME_DIR="${INTERLOCK_HOME:-$HOME/.interlock}"
 PRE_TIMEOUT="${INTERLOCK_PRE_TIMEOUT_MS:-1500}"
 POST_TIMEOUT="${INTERLOCK_POST_TIMEOUT_MS:-2500}"
-VERSION="0.1.8"
+VERSION="0.2.0"
 nl='
 '
 # the identity header name, matched case-insensitively at the start of a header line
