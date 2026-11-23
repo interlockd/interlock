@@ -504,3 +504,16 @@ def test_ack_body_rejects_a_trailing_newline():
     assert operator.parse_ack_body({"reasons": ["kiro:shim_modified"]}) == ["kiro:shim_modified"]
     with pytest.raises(operator.BadRequest):
         operator.parse_ack_body({"reasons": ["kiro:shim_modified\n"]})
+
+
+def test_correlation_breaks_a_same_millisecond_tie_by_recording_order(daemon):
+    """Decision times have millisecond resolution: two calls in the same millisecond go newest-recorded first."""
+    daemon.mode = "shadow"
+    daemon.operator_actions = ops = operator.OperatorActions(daemon.spool)
+    old = _agent_runs(daemon, "claude-code", "interlock shadow")
+    new = _agent_runs(daemon, "claude-code", "interlock shadow")
+    with ops._lock:
+        for c in ops._calls:
+            c["at"] = ops._calls[0]["at"]                      # the same millisecond
+    assert ops.correlate_hook_session("shadow")["event_id"] == new.event_id
+    assert ops.correlate_hook_session("shadow")["event_id"] == old.event_id
