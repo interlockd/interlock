@@ -28,7 +28,7 @@ import socket
 import sys
 
 HARNESS = "__HARNESS__"
-VERSION = "0.1.8"
+VERSION = "0.2.0"
 HOME_DIR = os.environ.get("INTERLOCK_HOME") or os.path.join(os.path.expanduser("~"), ".interlock")
 PRE_TIMEOUT = int(os.environ.get("INTERLOCK_PRE_TIMEOUT_MS") or 1500)
 POST_TIMEOUT = int(os.environ.get("INTERLOCK_POST_TIMEOUT_MS") or 2500)

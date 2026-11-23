@@ -17,7 +17,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const VERSION = "0.1.8";
+const VERSION = "0.2.0";
 const HOME = process.env.INTERLOCK_HOME || path.join(homedir(), ".interlock");
 const MAX_STATE_BYTES = 64 * 1024;
 const LISTEN = readListen();
